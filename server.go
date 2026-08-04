@@ -596,11 +596,21 @@ type watcherPage struct {
 	Err      string
 	Policy   string // the policy file as text, when there is one
 	Editable bool
+	OwnOnly  bool // not an admin: only the manual check is available
 	Probes   []ProbeResult
 }
 
-func (s *Server) watcherData() *watcherPage {
+// watcherData reads what the watcher left behind. The state, the log and the
+// policy describe one user's networks — whoever the watcher was configured for —
+// so they are shown to admins only; the manual check is everyone's, since it runs
+// on the caller's own connection.
+func (s *Server) watcherData(sess *Session) *watcherPage {
 	d := &watcherPage{StateDir: s.stateDir, Editable: s.policyPath != ""}
+	if !sess.IsAdmin() {
+		d.Editable = false
+		d.OwnOnly = true
+		return d
+	}
 	if s.stateDir == "" {
 		d.Err = "This program was started without -watch-state-dir, so it cannot see the watcher."
 		return d
@@ -626,7 +636,7 @@ func (s *Server) watcherData() *watcherPage {
 }
 
 func (s *Server) watcher(w http.ResponseWriter, r *http.Request, sess *Session) {
-	s.render(w, r, sess, "watcher.html", "Watcher", "watcher", s.watcherData())
+	s.render(w, r, sess, "watcher.html", "Watcher", "watcher", s.watcherData(sess))
 }
 
 // watcherCheck runs the zombie check now, as the signed-in user, so it needs no
@@ -638,7 +648,7 @@ func (s *Server) watcherCheck(w http.ResponseWriter, r *http.Request, sess *Sess
 		nets, err = c.ListNetworks()
 		return err
 	})
-	d := s.watcherData()
+	d := s.watcherData(sess)
 	if err != nil {
 		d.Err = err.Error()
 	} else {
@@ -649,6 +659,10 @@ func (s *Server) watcherCheck(w http.ResponseWriter, r *http.Request, sess *Sess
 }
 
 func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Session) {
+	if !sess.IsAdmin() {
+		http.Error(w, "admin only", http.StatusForbidden)
+		return
+	}
 	if s.policyPath == "" {
 		http.Error(w, "no policy file configured", http.StatusForbidden)
 		return

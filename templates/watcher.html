@@ -12,6 +12,8 @@ a button of its own. The watcher on the server does the same thing on a timer, a
 finds.</p>
 
 {{with .Data.Err}}<p class="flash bad">{{.}}</p>{{end}}
+{{if .Data.OwnOnly}}<p class="muted">The watcher's own state, log and policy concern the account it
+was set up for, so they are shown to admins only.</p>{{end}}
 
 {{with .Data.Probes}}
 <section class="card">

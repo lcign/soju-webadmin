@@ -1,0 +1,20 @@
+[Unit]
+Description=soju-webadmin watcher (zombie connections, nick recovery)
+After=network-online.target
+Wants=network-online.target
+# Point this at whatever sends you mail on failure, or drop the line.
+#OnFailure=status-email@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/soju-webadmin -watch -watch-once \
+    -soju 127.0.0.1:6697 \
+    -watch-config /etc/soju-webadmin/watch.conf \
+    -watch-state-dir /var/lib/soju-webadmin
+# The config holds a password; the state directory is created 0700.
+StateDirectory=soju-webadmin
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

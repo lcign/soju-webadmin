@@ -21,6 +21,12 @@ func main() {
 		keyFile  = flag.String("tls-key", "", "private key for serving HTTPS directly")
 		secureCk = flag.Bool("secure-cookie", false, "mark the session cookie Secure (set this behind an HTTPS proxy)")
 		idle     = flag.Duration("idle-timeout", time.Hour, "close a session after this long without a request")
+
+		watch      = flag.Bool("watch", false, "run the watcher instead of the web interface")
+		watchOnce  = flag.Bool("watch-once", false, "with -watch, do a single pass and exit (for a systemd timer or cron)")
+		watchDry   = flag.Bool("watch-dry-run", false, "with -watch, report what it would do and change nothing")
+		watchConf  = flag.String("watch-config", "/etc/soju-webadmin/watch.conf", "configuration for -watch")
+		watchState = flag.String("watch-state-dir", "/var/lib/soju-webadmin", "where -watch keeps its per-network state")
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "soju-webadmin — a web interface for the soju IRC bouncer\n\nusage: %s [options]\n\n", os.Args[0])
@@ -35,6 +41,27 @@ func main() {
 	}
 
 	cfg := ServerConfig{Addr: *sojuAddr, TLS: !*noTLS, Insecure: *insecure}
+
+	if *watch {
+		conf, err := LoadConfig(*watchConf)
+		if err != nil {
+			log.Fatal(err)
+		}
+		w, err := NewWatcher(cfg, conf, *watchState, *watchDry)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if *watchOnce {
+			if err := w.Run(); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+		log.Printf("watching soju at %s every %s", cfg.Addr, w.interval)
+		w.RunForever()
+		return
+	}
+
 	srv, err := NewServer(cfg, NewSessionStore(*idle), prefix, *secureCk || *certFile != "")
 	if err != nil {
 		log.Fatal(err)

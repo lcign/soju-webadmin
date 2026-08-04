@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the soju-webadmin watcher regularly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=20min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

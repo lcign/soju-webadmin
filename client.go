@@ -56,6 +56,21 @@ type Client struct {
 
 	Username string
 	IsAdmin  bool
+	Nick     string // the nick soju welcomed us with
+}
+
+// dialOpts covers the two kinds of connection this program opens: the plain one
+// the web interface uses, and the ones the watcher binds to a single network.
+type dialOpts struct {
+	// network binds the connection to one network. soju only accepts BOUNCER BIND
+	// before registration completes, so the network travels in the SASL username
+	// instead, as "user/network".
+	network string
+	// client names this connection for soju, keeping its state separate from the
+	// user's real clients.
+	client string
+	// caps are requested on top of the ones always needed.
+	caps []string
 }
 
 func randToken(n int) string {
@@ -72,6 +87,10 @@ func randToken(n int) string {
 // credentials are soju's own, which is what this program uses as its login: no
 // separate user store, no password of its own.
 func Dial(cfg ServerConfig, username, password string) (*Client, error) {
+	return dial(cfg, username, password, dialOpts{})
+}
+
+func dial(cfg ServerConfig, username, password string, o dialOpts) (*Client, error) {
 	var conn net.Conn
 	var err error
 	d := &net.Dialer{Timeout: dialTimeout}
@@ -89,18 +108,32 @@ func Dial(cfg ServerConfig, username, password string) (*Client, error) {
 	}
 
 	c := &Client{cfg: cfg, conn: conn, in: make(chan *Message, 256), Username: username}
-	if err := c.handshake(username, password); err != nil {
+	if err := c.handshake(username, password, o); err != nil {
 		conn.Close()
 		return nil, err
 	}
 	go c.readLoop()
 
-	// Admin commands are hidden from ordinary users, so asking is the only way to
-	// know which UI to show.
-	if _, err := c.Serv("user", "status"); err == nil {
-		c.IsAdmin = true
+	if o.network == "" {
+		// Admin commands are hidden from ordinary users, so asking is the only way
+		// to know which UI to show.
+		if _, err := c.Serv("user", "status"); err == nil {
+			c.IsAdmin = true
+		}
 	}
 	return c, nil
+}
+
+// saslUsername composes what soju parses back into user, client and network.
+func saslUsername(user string, o dialOpts) string {
+	s := user
+	if o.client != "" {
+		s += "@" + o.client
+	}
+	if o.network != "" {
+		s += "/" + o.network
+	}
+	return s
 }
 
 func (c *Client) write(line string) error {
@@ -113,7 +146,7 @@ func (c *Client) write(line string) error {
 
 // handshake registers and authenticates, reading the socket directly: the read
 // loop only starts once the connection is usable.
-func (c *Client) handshake(username, password string) error {
+func (c *Client) handshake(username, password string, o dialOpts) error {
 	br := bufio.NewReader(c.conn)
 	c.conn.SetDeadline(time.Now().Add(handshakeLimit))
 	defer c.conn.SetDeadline(time.Time{})
@@ -174,7 +207,8 @@ func (c *Client) handshake(username, password string) error {
 		return errors.New("soju did not offer SASL PLAIN, so this login cannot authenticate")
 	}
 
-	if err := c.write("CAP REQ :sasl soju.im/bouncer-networks batch message-tags"); err != nil {
+	caps := append([]string{"sasl", "soju.im/bouncer-networks", "batch", "message-tags"}, o.caps...)
+	if err := c.write("CAP REQ :" + strings.Join(caps, " ")); err != nil {
 		return err
 	}
 	for {
@@ -202,7 +236,7 @@ func (c *Client) handshake(username, password string) error {
 			continue
 		}
 		payload := base64.StdEncoding.EncodeToString(
-			[]byte("\x00" + username + "\x00" + password))
+			[]byte("\x00" + saslUsername(username, o) + "\x00" + password))
 		if err := c.write("AUTHENTICATE " + payload); err != nil {
 			return err
 		}
@@ -231,6 +265,9 @@ registered:
 			return err
 		}
 		if m.Command == "001" {
+			// Bound to a network, this is the nick as the network sees it — which is
+			// what the watcher compares against the nick it wants.
+			c.Nick = m.Param(0)
 			// The MOTD that follows is left for the read loop to discard.
 			return nil
 		}
@@ -315,6 +352,61 @@ func (c *Client) Request(lines ...string) ([]*Message, error) {
 			out = append(out, m)
 		case <-timeout:
 			return nil, errors.New("soju did not answer in time")
+		}
+	}
+}
+
+// Send writes a line and waits for nothing.
+func (c *Client) Send(line string) error {
+	return c.write(line)
+}
+
+// Await sends a line and waits for one of the given replies, discarding anything
+// else, until they arrive or the timeout passes.
+//
+// This exists because the PING trick Request relies on does not hold for anything
+// soju relays to a network: soju answers the PING itself, immediately, while the
+// network's reply is still in flight. Use Request for BouncerServ and the BOUNCER
+// extension, and Await for whatever travels to an upstream.
+func (c *Client) Await(line string, want []string, timeout time.Duration) ([]*Message, bool, error) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+
+	for {
+		select {
+		case _, ok := <-c.in:
+			if !ok {
+				return nil, false, errClosed
+			}
+			continue
+		default:
+		}
+		break
+	}
+
+	if err := c.write(line); err != nil {
+		return nil, false, err
+	}
+
+	wanted := make(map[string]bool, len(want))
+	for _, cmd := range want {
+		wanted[cmd] = true
+	}
+
+	var out []*Message
+	deadline := time.After(timeout)
+	for {
+		select {
+		case m, ok := <-c.in:
+			if !ok {
+				return out, false, errClosed
+			}
+			out = append(out, m)
+			if wanted[m.Command] {
+				return out, true, nil
+			}
+		case <-deadline:
+			return out, false, nil
 		}
 	}
 }

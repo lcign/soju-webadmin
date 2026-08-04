@@ -18,6 +18,40 @@ permissions. Admins additionally get the user management pages.
 - **Raw lines** to a network, the same as `network quote` — handy for HostServ and friends.
 - **Console** for any BouncerServ command, with its reply.
 - **Users** (admins) — create, edit, delete, and broadcast a notice.
+- **A watcher** for the two things soju does not do for itself: see below.
+
+## The watcher
+
+`soju-webadmin -watch` is the same binary doing a different job, on a timer:
+
+**Zombie connections.** soju can hold a network as `connected` while the socket on the other side is
+dead: the state says connected, the channels are listed, and nothing sent to that network arrives
+anywhere. The check is a `WHOIS` sent **through soju** on a connection bound to that network. A live
+upstream answers `311` or `401`; a dead one answers nothing, so the timeout is the diagnosis. Two
+silent probes in a row force a reconnect — one lagged server should not be enough — and an alert goes
+out.
+
+**Keeping your nick.** soju's connect commands only run when a connection registers, so after a
+netsplit, where nothing reconnects, a nick lost to a ghost stays lost. The escalation is what a person
+would do, one step per pass: plain `NICK`, then the network's services, then identify first. After
+three failures it waits an hour, because by then the nick may simply belong to somebody else.
+
+Everything goes through soju — raw lines, as `network quote` does — so it never writes to soju's
+database and never opens a second connection to the remote network.
+
+```sh
+install -Dm600 contrib/watch.conf.example /etc/soju-webadmin/watch.conf   # then edit it
+soju-webadmin -watch -watch-once -watch-dry-run   # rehearse: changes nothing, leaves no state
+install -m644 contrib/soju-webadmin-watch.{service,timer} /etc/systemd/system/
+systemctl enable --now soju-webadmin-watch.timer
+```
+
+`-watch-once` does a single pass and exits, for a systemd timer or cron; without it the watcher stays
+up and paces itself with `interval`. Alerts are handed to `alert-command` on stdin (`msmtp
+you@example.org`, `mail -s …`); with none configured they only reach the log.
+
+⚠️ The watcher signs in as a soju user, so its configuration holds that password and is refused
+unless it is mode 0600. This is the one thing it needs that the web interface does not.
 
 ## Install
 
@@ -75,6 +109,14 @@ Instead each request takes a lock, sends its command, then sends a `PING` carryi
 ordered per connection, so by the time the matching `PONG` arrives, every line belonging to the
 command has arrived too.
 
+⚠️ That trick holds **only for what soju answers itself**. Anything relayed to a network — the
+watcher's `WHOIS` — comes back later than soju's own `PONG`, so those wait for the reply they expect,
+with a timeout of their own. Mixing the two up makes a live network look dead.
+
+A connection bound to a network must also declare `draft/chathistory`, or soju replays the stored
+backlog to it. For a watchdog binding once per pass, that would mean dragging history across the
+socket every time.
+
 One IRC connection is held per signed-in session and closed when the session goes idle. If soju
 restarts, the next request redials and retries once, so nobody is logged out.
 
@@ -91,6 +133,11 @@ restarts, the next request redials and retries once, so nobody is logged out.
   Set them from the console.
 - **The session holds your soju password in memory** for the lifetime of the session, so it can
   redial. Nothing is written to disk; there is no state to steal after the process exits.
+- **The watcher counts as a client.** It binds to a network for a moment on every pass, which is
+  enough to clear soju's `auto-away` on that network until it disconnects again.
+- **`BOUNCER BIND` is registration-time only**, so the watcher binds through the SASL username
+  (`user/network`) instead. Its connections are named (`@watch`) to keep their state apart from your
+  real clients.
 - Not a chat client. Reading and writing messages is what gamja, goguma and senpai are for.
 
 ## License

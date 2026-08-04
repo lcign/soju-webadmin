@@ -1,0 +1,53 @@
+# Configuration for `soju-webadmin -watch`.
+#
+# It holds a password, so it must not be readable by others: chmod 600.
+# Networks not listed here are still watched for zombie connections; the
+# per-network sections only matter for getting a nick back.
+
+[watch]
+user = yourname
+password = your-soju-password
+
+# The nick to defend. Left out, it is the nick soju welcomes you with.
+#nick = Shyny
+
+# One pass every… (only used without -watch-once; with a systemd timer, the timer
+# decides instead).
+interval = 20m
+
+# After three failed attempts on a network, wait this long before trying again:
+# by then the nick may simply belong to somebody else.
+nick-cooldown = 1h
+
+# Told to nothing, alerts only reach the log. This command receives the message
+# on stdin.
+#alert-command = msmtp you@example.org
+
+# How to name this connection to soju, so its state stays apart from your real
+# clients.
+client = watch
+
+# --------------------------------------------------------------------------
+# Per-network settings. {nick} and {pass} are filled in.
+#
+# Which command works depends on the services the network runs:
+#   Atheme  -> REGAIN (ghosts and takes the nick in one move)
+#   Anope   -> RECOVER
+#   others  -> GHOST, then a NICK of its own (the watcher sends that itself)
+# A network without services cannot defend a nick at all: skip it.
+
+[network default]
+recover = PRIVMSG NickServ :GHOST {nick} {pass}
+identify = PRIVMSG NickServ :IDENTIFY {nick} {pass}
+
+[network libera]
+recover = PRIVMSG NickServ :REGAIN {nick}
+password = your-libera-password
+
+[network rizon]
+recover = PRIVMSG NickServ :RECOVER {nick}
+password = your-rizon-password
+
+[network ircnet]
+# no services here: the nick is not defensible
+skip = yes

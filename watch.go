@@ -20,12 +20,15 @@ package main
 // its database and no second connection to the remote network.
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -340,6 +343,57 @@ func (w *Watcher) recoverNick(bound *Client, name, current string, ns *Section, 
 	}
 }
 
+// ---------------------------------------------------------------- manual check
+
+// ProbeResult is what one network answered to a check asked for by hand.
+type ProbeResult struct {
+	Network  string
+	ID       string
+	State    string
+	Answered bool
+	Nick     string
+	Note     string
+}
+
+// ProbeNetworks runs the zombie check once, for the web interface, using the
+// credentials of whoever is signed in. It reports and changes nothing: repairing
+// stays a button of its own.
+func ProbeNetworks(cfg ServerConfig, user, password, client string, nets []*Network) []ProbeResult {
+	if client == "" {
+		client = "watch"
+	}
+	out := make([]ProbeResult, 0, len(nets))
+	for _, n := range nets {
+		r := ProbeResult{Network: n.Name(), ID: n.ID, State: n.State()}
+		if n.State() != "connected" {
+			r.Note = "not connected"
+			out = append(out, r)
+			continue
+		}
+		bound, err := dial(cfg, user, password, dialOpts{
+			network: n.Name(),
+			client:  client,
+			caps:    []string{"draft/chathistory", "soju.im/no-implicit-names"},
+		})
+		if err != nil {
+			r.Note = "cannot bind: " + err.Error()
+			out = append(out, r)
+			continue
+		}
+		r.Nick = bound.Nick
+		// WHOIS of the nick soju itself registered with: alive, it must come back.
+		_, ok, err := bound.Await(formatMessage("WHOIS", bound.Nick),
+			[]string{"311", "401", "318"}, probeTimeout)
+		bound.Close()
+		r.Answered = ok && err == nil
+		if !r.Answered {
+			r.Note = "no answer: the upstream socket looks dead"
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // redact keeps a password out of the log.
 func redact(line, pass string) string {
 	if pass == "" {
@@ -362,6 +416,88 @@ func (w *Watcher) alert(subject, body string) {
 	if err != nil {
 		log.Printf("alert command failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
+}
+
+// logFile is the watcher's own log, kept beside its state so a web interface with
+// no access to the journal can still show it. It is trimmed to keep the tail,
+// since nothing rotates it.
+const (
+	logName     = "watch.log"
+	logMaxBytes = 128 << 10
+)
+
+// OpenLog sends the log to stderr — the journal, under systemd — and to a file in
+// the state directory.
+func (w *Watcher) OpenLog() {
+	path := filepath.Join(w.stateDir, logName)
+	if st, err := os.Stat(path); err == nil && st.Size() > logMaxBytes {
+		if b, err := os.ReadFile(path); err == nil {
+			keep := b[len(b)-logMaxBytes/2:]
+			if i := bytes.IndexByte(keep, '\n'); i >= 0 {
+				keep = keep[i+1:] // start on a whole line
+			}
+			os.WriteFile(path, keep, 0o600)
+		}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		log.Printf("cannot write %s: %v", path, err)
+		return
+	}
+	log.SetOutput(io.MultiWriter(os.Stderr, f))
+}
+
+// ReadLog returns the tail of the watcher's log, newest lines last.
+func ReadLog(stateDir string, maxLines int) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(stateDir, logName))
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	return lines, nil
+}
+
+// NetworkState is one network's watcher state, for display.
+type NetworkState struct {
+	Network string
+	watchState
+}
+
+func (s NetworkState) LastRepairTime() string {
+	if s.LastRepair == 0 {
+		return ""
+	}
+	return time.Unix(s.LastRepair, 0).Format("2006-01-02 15:04")
+}
+
+// ReadStates loads whatever state the watcher has left behind.
+func ReadStates(stateDir string) ([]NetworkState, error) {
+	entries, err := os.ReadDir(stateDir)
+	if err != nil {
+		return nil, err
+	}
+	var out []NetworkState
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(stateDir, name))
+		if err != nil {
+			continue
+		}
+		ns := NetworkState{Network: strings.TrimSuffix(name, ".json")}
+		if json.Unmarshal(b, &ns.watchState) == nil {
+			out = append(out, ns)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Network) < strings.ToLower(out[j].Network)
+	})
+	return out, nil
 }
 
 func (w *Watcher) statePath(network string) string {

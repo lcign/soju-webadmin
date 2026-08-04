@@ -54,6 +54,14 @@ func (s *Session) User() string {
 	return s.user
 }
 
+// Credentials are needed to open the extra connections a manual watcher check
+// binds to each network. They never leave the process.
+func (s *Session) Credentials() (string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.user, s.password
+}
+
 func (s *Session) IsAdmin() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -12,6 +12,7 @@
 	<a class="brand" href="{{.Prefix}}/">soju</a>
 	<nav>
 		<a href="{{.Prefix}}/" {{if eq .Nav "networks"}}class="on"{{end}}>Networks</a>
+		<a href="{{.Prefix}}/watcher" {{if eq .Nav "watcher"}}class="on"{{end}}>Watcher</a>
 		<a href="{{.Prefix}}/console" {{if eq .Nav "console"}}class="on"{{end}}>Console</a>
 		{{if .IsAdmin}}<a href="{{.Prefix}}/users" {{if eq .Nav "users"}}class="on"{{end}}>Users</a>{{end}}
 	</nav>

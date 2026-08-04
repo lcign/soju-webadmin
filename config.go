@@ -66,12 +66,65 @@ func (c *Config) NetworkSection(name string) *Section {
 	return merged
 }
 
+// policyKeys are the only settings a policy file may carry. The credentials and
+// anything that runs a command stay in the file only the watcher can read: a
+// policy file is editable from the web interface, and nothing editable from there
+// should be able to hand root a shell or read a password back.
+var policyKeys = map[string]bool{
+	"interval": true, "nick-cooldown": true, "nick": true, "client": true,
+	"recover": true, "identify": true, "skip": true,
+}
+
+// MergePolicy layers a policy file over this configuration, ignoring keys a
+// policy is not allowed to set.
+func (c *Config) MergePolicy(p *Config) []string {
+	var refused []string
+	for _, src := range p.sections {
+		var dst *Section
+		if c.has(src.Name) {
+			dst = c.Section(src.Name)
+		} else {
+			dst = &Section{Name: src.Name, Keys: map[string]string{}}
+			c.sections = append(c.sections, dst)
+		}
+		for k, v := range src.Keys {
+			if !policyKeys[k] {
+				refused = append(refused, src.Name+"/"+k)
+				continue
+			}
+			dst.Keys[k] = v
+		}
+	}
+	return refused
+}
+
+func (c *Config) has(name string) bool {
+	for _, s := range c.sections {
+		if strings.EqualFold(s.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// LoadConfig reads a configuration that holds credentials, so it refuses a file
+// others can read.
 func LoadConfig(path string) (*Config, error) {
+	return loadConfig(path, true)
+}
+
+// LoadPolicy reads a policy file, which holds no secrets and is expected to be
+// writable by the web interface.
+func LoadPolicy(path string) (*Config, error) {
+	return loadConfig(path, false)
+}
+
+func loadConfig(path string, secret bool) (*Config, error) {
 	st, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	if st.Mode().Perm()&0o077 != 0 {
+	if secret && st.Mode().Perm()&0o077 != 0 {
 		return nil, fmt.Errorf("%s holds a password and is readable by others: chmod 600 it", path)
 	}
 

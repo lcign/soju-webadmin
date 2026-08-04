@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -24,6 +26,13 @@ type Server struct {
 	prefix   string // base path, "" or "/soju" style, no trailing slash
 	secure   bool   // mark the session cookie Secure
 	tmpl     *template.Template
+
+	// stateDir is the watcher's state directory, read-only as far as this side is
+	// concerned: it is where its log and per-network state are read from.
+	stateDir string
+	// policyPath is the watcher's policy file. Set, and it becomes editable here;
+	// the credentials live in a different file this program never touches.
+	policyPath string
 }
 
 func NewServer(cfg ServerConfig, sessions *SessionStore, prefix string, secure bool) (*Server, error) {
@@ -70,8 +79,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /networks/{id}/sasl", s.auth(s.sasl))
 	mux.HandleFunc("POST /networks/{id}/certfp", s.auth(s.certfp))
 
+	mux.HandleFunc("POST /networks/{id}/reconnect", s.auth(s.networkReconnect))
+
 	mux.HandleFunc("GET /console", s.auth(s.console))
 	mux.HandleFunc("POST /console", s.auth(s.consoleRun))
+
+	mux.HandleFunc("GET /watcher", s.auth(s.watcher))
+	mux.HandleFunc("POST /watcher/check", s.auth(s.watcherCheck))
+	mux.HandleFunc("POST /watcher/policy", s.auth(s.watcherPolicy))
 
 	mux.HandleFunc("GET /users", s.auth(s.users))
 	mux.HandleFunc("POST /users/new", s.auth(s.userCreate))
@@ -570,6 +585,130 @@ func (s *Server) consoleRun(w http.ResponseWriter, r *http.Request, sess *Sessio
 		data["Output"] = out
 	}
 	s.render(w, r, sess, "console.html", "Console", "console", data)
+}
+
+// ---------------------------------------------------------------- watcher
+
+type watcherPage struct {
+	StateDir string
+	States   []NetworkState
+	Log      []string
+	Err      string
+	Policy   string // the policy file as text, when there is one
+	Editable bool
+	Probes   []ProbeResult
+}
+
+func (s *Server) watcherData() *watcherPage {
+	d := &watcherPage{StateDir: s.stateDir, Editable: s.policyPath != ""}
+	if s.stateDir == "" {
+		d.Err = "This program was started without -watch-state-dir, so it cannot see the watcher."
+		return d
+	}
+	var err error
+	if d.States, err = ReadStates(s.stateDir); err != nil {
+		d.Err = "cannot read the watcher's state: " + err.Error()
+	}
+	if lines, err := ReadLog(s.stateDir, 200); err == nil {
+		d.Log = lines
+	} else if d.Err == "" {
+		d.Err = "no log yet: the watcher may never have run."
+	}
+	if s.policyPath != "" {
+		if b, err := os.ReadFile(s.policyPath); err == nil {
+			d.Policy = string(b)
+		} else {
+			d.Err = "cannot read the policy file: " + err.Error()
+			d.Editable = false
+		}
+	}
+	return d
+}
+
+func (s *Server) watcher(w http.ResponseWriter, r *http.Request, sess *Session) {
+	s.render(w, r, sess, "watcher.html", "Watcher", "watcher", s.watcherData())
+}
+
+// watcherCheck runs the zombie check now, as the signed-in user, so it needs no
+// stored credentials of its own.
+func (s *Server) watcherCheck(w http.ResponseWriter, r *http.Request, sess *Session) {
+	var nets []*Network
+	err := sess.Do(s.cfg, func(c *Client) error {
+		var err error
+		nets, err = c.ListNetworks()
+		return err
+	})
+	d := s.watcherData()
+	if err != nil {
+		d.Err = err.Error()
+	} else {
+		user, pass := sess.Credentials()
+		d.Probes = ProbeNetworks(s.cfg, user, pass, "watch", nets)
+	}
+	s.render(w, r, sess, "watcher.html", "Watcher", "watcher", d)
+}
+
+func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Session) {
+	if s.policyPath == "" {
+		http.Error(w, "no policy file configured", http.StatusForbidden)
+		return
+	}
+	text := strings.ReplaceAll(r.PostFormValue("policy"), "\r\n", "\n")
+
+	// Refuse to save something the watcher would then choke on, and say which keys
+	// a policy is not allowed to carry.
+	tmp, err := os.CreateTemp(filepath.Dir(s.policyPath), ".policy-*")
+	if err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(text); err != nil {
+		tmp.Close()
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	tmp.Close()
+
+	parsed, err := LoadPolicy(tmp.Name())
+	if err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	empty := &Config{}
+	if refused := empty.MergePolicy(parsed); len(refused) > 0 {
+		s.back(w, r, sess, "/watcher",
+			fmt.Errorf("a policy file cannot set: %s — those belong in the watcher's own configuration",
+				strings.Join(refused, ", ")), "")
+		return
+	}
+
+	if err := os.WriteFile(s.policyPath, []byte(text), 0o644); err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	s.back(w, r, sess, "/watcher", nil, "Policy saved; the watcher picks it up on its next pass.")
+}
+
+// networkReconnect is what the watcher does when it finds a zombie: rewriting the
+// address is what makes soju drop the socket and dial again.
+func (s *Server) networkReconnect(w http.ResponseWriter, r *http.Request, sess *Session) {
+	id := r.PathValue("id")
+	back := "/networks/" + id
+	if r.PostFormValue("from") == "watcher" {
+		back = "/watcher"
+	}
+	var name string
+	err := sess.Do(s.cfg, func(c *Client) error {
+		n, err := c.Network(id)
+		if err != nil {
+			return err
+		}
+		name = n.Name()
+		_, err = c.Serv("network", "update", name, "-addr", n.Addr())
+		return err
+	})
+	s.back(w, r, sess, back, err, "Reconnecting "+name+".")
 }
 
 // ---------------------------------------------------------------- users, admin

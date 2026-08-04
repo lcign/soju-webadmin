@@ -26,7 +26,8 @@ func main() {
 		watchOnce  = flag.Bool("watch-once", false, "with -watch, do a single pass and exit (for a systemd timer or cron)")
 		watchDry   = flag.Bool("watch-dry-run", false, "with -watch, report what it would do and change nothing")
 		watchConf  = flag.String("watch-config", "/etc/soju-webadmin/watch.conf", "configuration for -watch")
-		watchState = flag.String("watch-state-dir", "/var/lib/soju-webadmin", "where -watch keeps its per-network state")
+		watchState = flag.String("watch-state-dir", "/var/lib/soju-webadmin", "where -watch keeps its per-network state; serving, where to read it from (empty: no watcher page)")
+		policy     = flag.String("watch-policy", "", "policy file layered over the watcher's configuration; serving, this makes it editable")
 	)
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "soju-webadmin — a web interface for the soju IRC bouncer\n\nusage: %s [options]\n\n", os.Args[0])
@@ -47,10 +48,20 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
+		if *policy != "" {
+			p, err := LoadPolicy(*policy)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if refused := conf.MergePolicy(p); len(refused) > 0 {
+				log.Printf("ignored in %s: %s", *policy, strings.Join(refused, ", "))
+			}
+		}
 		w, err := NewWatcher(cfg, conf, *watchState, *watchDry)
 		if err != nil {
 			log.Fatal(err)
 		}
+		w.OpenLog()
 		if *watchOnce {
 			if err := w.Run(); err != nil {
 				log.Fatal(err)
@@ -66,6 +77,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	srv.stateDir, srv.policyPath = *watchState, *policy
 
 	hs := &http.Server{
 		Addr:              *listen,

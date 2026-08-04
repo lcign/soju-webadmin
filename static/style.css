@@ -94,6 +94,22 @@ pre.out {
 	color: var(--dim);
 }
 
+pre.out.log { max-height: 26rem; overflow-y: auto; color: var(--fg); }
+
+textarea {
+	width: 100%;
+	margin: .3rem 0 .8rem;
+	padding: .6rem .7rem;
+	background: var(--bg);
+	color: var(--fg);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+	font-family: var(--mono);
+	font-size: .9em;
+	resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .flash { padding: .6rem .8rem; border-radius: 6px; border: 1px solid var(--line); }
 .flash.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--line)); }
 .flash.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }

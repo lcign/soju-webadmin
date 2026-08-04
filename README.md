@@ -85,6 +85,8 @@ It then serves on `http://127.0.0.1:8080/`. Options:
 | `-tls-cert`, `-tls-key` | | serve HTTPS directly instead of behind a proxy |
 | `-secure-cookie` | off | mark the session cookie `Secure`; set this behind an HTTPS proxy |
 | `-idle-timeout` | `1h` | close a session after this long without a request |
+| `-lang` | `en` | language this instance prefers; the browser and the reader can still choose |
+| `-locales-dir` | | read translations from a directory instead of the ones built in |
 | `-watch-state-dir` | `/var/lib/soju-webadmin` | where the watcher keeps its state and log; serving, where to read them from |
 | `-watch-policy` | | the watcher's policy file; serving, this makes it editable |
 

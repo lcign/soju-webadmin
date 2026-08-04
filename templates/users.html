@@ -1,0 +1,68 @@
+{{template "head" .}}
+{{$p := .Prefix}}{{$csrf := .CSRF}}
+<h1>Users</h1>
+
+<table>
+	<thead><tr><th>User<th>Change<th></tr></thead>
+	<tbody>
+	{{range .Data.Users}}
+	<tr>
+		<td class="mono">{{.Line}}
+		<td>
+			<form method="post" action="{{$p}}/users/update" class="row">
+				<input type="hidden" name="csrf" value="{{$csrf}}">
+				<input type="hidden" name="username" value="{{.Name}}">
+				<input name="password" type="password" autocomplete="new-password" placeholder="new password">
+				<select name="admin">
+					<option value="">admin: keep</option>
+					<option value="true">admin: yes</option>
+					<option value="false">admin: no</option>
+				</select>
+				<select name="enabled">
+					<option value="">enabled: keep</option>
+					<option value="true">enabled: yes</option>
+					<option value="false">enabled: no</option>
+				</select>
+				<input name="max-networks" inputmode="numeric" class="tiny" placeholder="max nets">
+				<button>Apply</button>
+			</form>
+		<td class="num">
+			<form method="post" action="{{$p}}/users/delete">
+				<input type="hidden" name="csrf" value="{{$csrf}}">
+				<input type="hidden" name="username" value="{{.Name}}">
+				<button class="danger">Delete</button>
+			</form>
+	</tr>
+	{{end}}
+	</tbody>
+</table>
+
+<div class="cols">
+<section class="card">
+	<h2>New user</h2>
+	<form method="post" action="{{$p}}/users/new">
+		<input type="hidden" name="csrf" value="{{$csrf}}">
+		<div class="grid">
+			<label>Username <input name="username" required></label>
+			<label>Password <input name="password" type="password" autocomplete="new-password" required></label>
+			<label>Nick <input name="nick"></label>
+			<label>Real name <input name="realname"></label>
+			<label>Max networks <input name="max-networks" inputmode="numeric"></label>
+			<label class="check"><input type="checkbox" name="admin" value="1"> admin</label>
+		</div>
+		<button class="primary">Create user</button>
+	</form>
+</section>
+
+<section class="card">
+	<h2>Server</h2>
+	<pre class="out">{{range .Data.Status}}{{.}}
+{{end}}</pre>
+	<form method="post" action="{{$p}}/server/notice" class="row">
+		<input type="hidden" name="csrf" value="{{$csrf}}">
+		<input name="notice" class="grow" placeholder="Broadcast to every connected user" required>
+		<button data-confirm="Send this notice to every connected user?">Broadcast</button>
+	</form>
+</section>
+</div>
+{{template "foot" .}}

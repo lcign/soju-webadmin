@@ -1,0 +1,17 @@
+{{template "head" .}}
+<h1>Console</h1>
+<p class="muted">Runs a BouncerServ command as <strong>{{.User}}</strong> and shows what comes back —
+the same commands, and the same permissions, as messaging BouncerServ from an IRC client.
+Start with <code>help</code>.</p>
+
+<div class="card">
+	<form method="post" action="{{.Prefix}}/console" class="row">
+		<input type="hidden" name="csrf" value="{{.CSRF}}">
+		<input name="command" class="mono grow" value="{{.Data.Command}}" placeholder="network status" autofocus required>
+		<button class="primary">Run</button>
+	</form>
+	{{with .Data.Error}}<p class="flash bad">{{.}}</p>{{end}}
+	{{with .Data.Output}}<pre class="out">{{range .}}{{.}}
+{{end}}</pre>{{end}}
+</div>
+{{template "foot" .}}

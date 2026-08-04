@@ -1,0 +1,16 @@
+{{template "head" .}}
+<div class="card narrow">
+	<h1>Delete {{.Data.Username}}?</h1>
+	<p>Everything belonging to this user goes: networks, saved channels, stored history.
+	It cannot be undone.</p>
+	<pre class="out">{{range .Data.Reply}}{{.}}
+{{end}}</pre>
+	<form method="post" action="{{.Prefix}}/users/delete" class="row">
+		<input type="hidden" name="csrf" value="{{.CSRF}}">
+		<input type="hidden" name="username" value="{{.Data.Username}}">
+		<input type="hidden" name="token" value="{{.Data.Token}}">
+		<a class="button" href="{{.Prefix}}/users">Cancel</a>
+		<button class="danger">Delete {{.Data.Username}}</button>
+	</form>
+</div>
+{{template "foot" .}}

@@ -1,0 +1,34 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} — soju</title>
+<link rel="stylesheet" href="{{.Prefix}}/static/style.css">
+</head>
+<body>
+{{if .User}}
+<header>
+	<a class="brand" href="{{.Prefix}}/">soju</a>
+	<nav>
+		<a href="{{.Prefix}}/" {{if eq .Nav "networks"}}class="on"{{end}}>Networks</a>
+		<a href="{{.Prefix}}/console" {{if eq .Nav "console"}}class="on"{{end}}>Console</a>
+		{{if .IsAdmin}}<a href="{{.Prefix}}/users" {{if eq .Nav "users"}}class="on"{{end}}>Users</a>{{end}}
+	</nav>
+	<form method="post" action="{{.Prefix}}/logout" class="right">
+		<input type="hidden" name="csrf" value="{{.CSRF}}">
+		<span class="who">{{.User}}{{if .IsAdmin}} <span class="tag">admin</span>{{end}}</span>
+		<button class="link">Sign out</button>
+	</form>
+</header>
+{{end}}
+<main>
+{{with .Flash}}<p class="flash {{if .Bad}}bad{{else}}good{{end}}">{{.Text}}</p>{{end}}
+{{end}}
+
+{{define "foot"}}
+</main>
+<script src="{{.Prefix}}/static/confirm.js"></script>
+</body>
+</html>
+{{end}}

@@ -668,6 +668,9 @@ func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Ses
 		return
 	}
 	text := strings.ReplaceAll(r.PostFormValue("policy"), "\r\n", "\n")
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n" // a browser drops the last newline; a config file should keep it
+	}
 
 	// Refuse to save something the watcher would then choke on, and say which keys
 	// a policy is not allowed to carry.

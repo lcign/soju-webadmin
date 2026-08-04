@@ -42,7 +42,15 @@ type watchState struct {
 	LastRepair int64 `json:"last_repair"`
 }
 
+// passStats is what one pass reports at the end. A healthy pass has nothing else
+// to say, and silence in the journal would not prove it ran.
+type passStats struct {
+	checked, skipped, silent, repaired, nick int
+}
+
 type Watcher struct {
+	stats passStats
+
 	cfg      ServerConfig
 	conf     *Config
 	user     string
@@ -115,20 +123,28 @@ func (w *Watcher) Run() error {
 		return err
 	}
 
+	w.stats = passStats{}
 	for _, n := range nets {
 		name := n.Name()
 		if n.State() != "connected" {
 			log.Printf("%s: %s, skipped", name, n.State())
+			w.stats.skipped++
 			continue
 		}
 		ns := w.conf.NetworkSection(name)
 		if ns.Bool("skip") {
+			w.stats.skipped++
 			continue
 		}
+		w.stats.checked++
 		if err := w.checkNetwork(admin, n, ns); err != nil {
 			log.Printf("%s: %v", name, err)
 		}
 	}
+
+	s := w.stats
+	log.Printf("%d networks checked, %d skipped: %d silent, %d reconnected, %d nick attempts",
+		s.checked, s.skipped, s.silent, s.repaired, s.nick)
 	return nil
 }
 
@@ -161,6 +177,7 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 
 	answered, inUse := w.probe(bound, w.nick)
 	if !answered {
+		w.stats.silent++
 		st.ProbeFails++
 		log.Printf("%s: no answer to WHOIS through soju (%d in a row)", name, st.ProbeFails)
 		if st.ProbeFails >= 2 {
@@ -254,6 +271,7 @@ func (w *Watcher) repair(admin *Client, n *Network, st *watchState) {
 				"Forcing a reconnect failed: %v\n\nSort it out by hand.\n", name, w.nick, err))
 		return
 	}
+	w.stats.repaired++
 	log.Printf("%s: zombie connection, reconnect forced", name)
 	w.alert("soju: zombie connection on "+name,
 		fmt.Sprintf("The network %q was held as connected by soju, but a WHOIS for %q sent\n"+
@@ -273,6 +291,7 @@ func (w *Watcher) recoverNick(bound *Client, name, current string, ns *Section, 
 	}
 	st.NickStep++
 	st.NickLast = now.Unix()
+	w.stats.nick++
 
 	pass := ns.Get("password")
 	expand := func(k string) string {

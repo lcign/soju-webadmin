@@ -108,6 +108,22 @@ docker build -t soju-webadmin .
 docker run --rm -p 8080:8080 soju-webadmin -listen 0.0.0.0:8080 -soju host.docker.internal:6697
 ```
 
+## Updating, when the watcher runs beside a container
+
+Running the web interface in a container and the watcher on the host means the same program is
+installed twice, and rebuilding the image alone leaves the watcher on the old version without
+saying so. `contrib/soju-webadmin-update` closes that gap: it does not compile twice, it **extracts
+the binary from the image it just built**, so the two copies are the same file by construction. Then
+it checks that the container really runs the new image, that the login page answers, and makes the
+watcher do one pass — enough to catch a configuration that no longer parses.
+
+```sh
+install -m755 contrib/soju-webadmin-update /usr/local/sbin/
+install -Dm644 contrib/update.conf.example /etc/soju-webadmin/update.conf   # then edit the paths
+sudo soju-webadmin-update            # pull, rebuild, restart, verify
+sudo soju-webadmin-update --local    # the same without git pull
+```
+
 ## How it talks to soju
 
 Two interfaces, for two reasons:

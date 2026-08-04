@@ -1,0 +1,22 @@
+# Settings for soju-webadmin-update, in /etc/soju-webadmin/update.conf.
+# Nothing secret here: it only says where things are.
+
+# Compose project directory, the one holding docker-compose.yml and src/.
+DIR=/srv/lab/soju-webadmin
+
+# Image the compose file builds, and the container it runs.
+IMG=lab-soju-webadmin:latest
+CONTAINER=soju-webadmin
+
+# Where the watcher's binary goes on the host. Empty to skip, if the watcher does
+# not run here.
+BIN=/usr/local/bin/soju-webadmin
+
+# One watcher pass after the update, to catch a configuration that no longer
+# parses. Empty to skip.
+UNIT=soju-webadmin-watch
+STATE=/var/lib/soju-webadmin
+
+# Checked after the restart; it must answer 200. Point it at the login page, which
+# needs no session. Empty to skip.
+HEALTH=http://127.0.0.1:9084/soju/login

@@ -1,0 +1,111 @@
+#!/bin/bash
+# Update both halves of a soju-webadmin install from a single build: the web
+# interface in its container, and the watcher binary on the host.
+#
+# It matters that they come from the same build. The watcher is a second copy of
+# the same program, so rebuilding the image alone leaves the watcher behind — and
+# nothing tells you. This does not compile twice: it extracts the binary from the
+# image that was just built, which makes the two copies the same file by
+# construction.
+#
+#   soju-webadmin-update            pull, rebuild, restart, verify
+#   soju-webadmin-update --local    the same without git pull
+#
+# Settings, read from /etc/soju-webadmin/update.conf if it exists, and overridable
+# from the environment:
+#
+#   DIR        compose project directory, the one holding docker-compose.yml
+#   SRC        git clone to pull                       (default: $DIR/src)
+#   IMG        image the compose file builds
+#   CONTAINER  container to check afterwards
+#   BIN        where the host binary goes, "" to skip   (watcher on the host)
+#   UNIT       systemd unit for one watcher pass, "" to skip
+#   STATE      the watcher's state directory, for the log tail
+#   HEALTH     URL that must answer 200 after the restart, "" to skip
+set -euo pipefail
+
+CONF=${CONF:-/etc/soju-webadmin/update.conf}
+# shellcheck disable=SC1090
+[ -r "$CONF" ] && . "$CONF"
+
+DIR=${DIR:-/opt/soju-webadmin}
+SRC=${SRC:-$DIR/src}
+IMG=${IMG:-soju-webadmin:latest}
+CONTAINER=${CONTAINER:-soju-webadmin}
+BIN=${BIN:-/usr/local/bin/soju-webadmin}
+UNIT=${UNIT:-soju-webadmin-watch}
+STATE=${STATE:-/var/lib/soju-webadmin}
+HEALTH=${HEALTH:-}
+
+[ "$(id -u)" -eq 0 ] || { echo "run this with sudo" >&2; exit 1; }
+[ -d "$DIR" ] || { echo "$DIR does not exist: set DIR in $CONF" >&2; exit 1; }
+
+TMPC=""
+cleanup() { [ -n "$TMPC" ] && docker rm -f "$TMPC" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+say() { printf '\n== %s\n' "$1"; }
+
+# 1. sources. git refuses to work in another user's directory, so the pull runs as
+#    whoever owns the clone, not as root.
+say "sources"
+if [ -d "$SRC/.git" ]; then
+  OWNER=$(stat -c %U "$SRC")
+  OLD=$(sudo -u "$OWNER" git -C "$SRC" rev-parse --short HEAD)
+  if [ "${1:-}" = "--local" ]; then
+    echo "git pull skipped (--local), staying on $OLD"
+  else
+    sudo -u "$OWNER" git -C "$SRC" pull --ff-only
+  fi
+  NEW=$(sudo -u "$OWNER" git -C "$SRC" rev-parse --short HEAD)
+  if [ "$OLD" = "$NEW" ]; then
+    echo "no new commit ($NEW), rebuilding anyway"
+  else
+    echo "$OLD -> $NEW:"
+    sudo -u "$OWNER" git -C "$SRC" log --oneline "$OLD..$NEW" | sed 's/^/  /'
+  fi
+else
+  NEW="(no git clone in $SRC)"
+  echo "$NEW, rebuilding from what is on disk"
+fi
+
+# 2. image and web interface
+say "web interface"
+cd "$DIR"
+docker compose build -q          # quiet: the outcome is what matters, not the layers
+docker compose up -d
+
+# 3. the same binary, on the host, for the watcher
+if [ -n "$BIN" ]; then
+  say "watcher"
+  TMPC=$(docker create "$IMG")
+  docker cp "$TMPC:/soju-webadmin" /tmp/soju-webadmin.new >/dev/null
+  docker rm -f "$TMPC" >/dev/null; TMPC=""
+  install -m755 /tmp/soju-webadmin.new "$BIN"
+  rm -f /tmp/soju-webadmin.new
+  echo "extracted from the image and installed as $BIN ($(sha256sum "$BIN" | cut -c1-12))"
+fi
+
+# 4. checks. That the container really runs the image just built is the case worth
+#    catching: a rebuild without a restart looks like success and changes nothing.
+say "checks"
+WANT=$(docker image inspect -f '{{.Id}}' "$IMG")
+GOT=$(docker inspect -f '{{.Image}}' "$CONTAINER")
+if [ "$WANT" != "$GOT" ]; then
+  echo "WARNING: $CONTAINER is not running the image just built" >&2
+  exit 1
+fi
+echo "web interface: current image, $(docker inspect -f '{{.State.Status}}' "$CONTAINER")"
+
+if [ -n "$HEALTH" ]; then
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH" || true)
+  echo "web interface: $HEALTH -> $code"
+  [ "$code" = "200" ] || { echo "WARNING: no answer from $HEALTH" >&2; exit 1; }
+fi
+
+if [ -n "$UNIT" ] && systemctl cat "$UNIT" >/dev/null 2>&1; then
+  systemctl start "$UNIT"
+  [ -r "$STATE/watch.log" ] && echo "watcher: $(tail -1 "$STATE/watch.log")"
+fi
+
+say "done ($NEW)"

@@ -39,6 +39,18 @@ three failures it waits an hour, because by then the nick may simply belong to s
 Everything goes through soju — raw lines, as `network quote` does — so it never writes to soju's
 database and never opens a second connection to the remote network.
 
+**In the web interface**, the *Watcher* page shows what it recorded per network, its log, and a
+**Check now** button that runs the same zombie check on your own connection — as you, so it needs no
+stored credentials, and it changes nothing: reconnecting is a button of its own. Point the web side at
+the watcher with `-watch-state-dir` (read-only is enough) and, to make the per-network policy editable
+there, `-watch-policy`.
+
+The policy file is deliberately **separate from the credentials**: it may only set `interval`,
+`nick-cooldown`, `nick`, `client` and the per-network `recover` / `identify` / `skip`. Anything else —
+the password, `alert-command` — is refused, so nothing editable from a browser can read a secret back
+or hand a command to a process running as root. The state, the log and the policy describe one
+account's networks, so they are shown to **admins** only.
+
 ```sh
 install -Dm600 contrib/watch.conf.example /etc/soju-webadmin/watch.conf   # then edit it
 soju-webadmin -watch -watch-once -watch-dry-run   # rehearse: changes nothing, leaves no state
@@ -72,6 +84,8 @@ It then serves on `http://127.0.0.1:8080/`. Options:
 | `-tls-cert`, `-tls-key` | | serve HTTPS directly instead of behind a proxy |
 | `-secure-cookie` | off | mark the session cookie `Secure`; set this behind an HTTPS proxy |
 | `-idle-timeout` | `1h` | close a session after this long without a request |
+| `-watch-state-dir` | `/var/lib/soju-webadmin` | where the watcher keeps its state and log; serving, where to read them from |
+| `-watch-policy` | | the watcher's policy file; serving, this makes it editable |
 
 soju needs a listener this program can reach — the normal `listen ircs://…` one is enough:
 

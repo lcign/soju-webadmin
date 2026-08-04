@@ -51,3 +51,11 @@ password = your-rizon-password
 [network ircnet]
 # no services here: the nick is not defensible
 skip = yes
+
+# --------------------------------------------------------------------------
+# Splitting this file
+#
+# Everything below [watch] — the per-network sections, plus interval,
+# nick-cooldown, nick and client — can live in a separate policy file passed with
+# -watch-policy, which is what the web interface is allowed to edit. Keep the
+# credentials here: a policy file may not set them, nor alert-command.

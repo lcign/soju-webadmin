@@ -19,6 +19,7 @@ permissions. Admins additionally get the user management pages.
 - **Console** for any BouncerServ command, with its reply.
 - **Users** (admins) — create, edit, delete, and broadcast a notice.
 - **A watcher** for the two things soju does not do for itself: see below.
+- **English and Italian**, with the pages' fixed text open to more languages: see below.
 
 ## The watcher
 
@@ -106,6 +107,41 @@ With Docker:
 ```sh
 docker build -t soju-webadmin .
 docker run --rm -p 8080:8080 soju-webadmin -listen 0.0.0.0:8080 -soju host.docker.internal:6697
+```
+
+## Languages
+
+The pages' fixed text — labels, buttons, headings, the explanations — is translatable. English and
+Italian ship with it; the switcher in the header appears as soon as there is more than one language.
+Which one you get: `-lang` sets what the instance prefers, the browser's `Accept-Language` overrides
+it, and a reader's own choice overrides both and is kept in a cookie.
+
+⚠️ **What soju says stays in soju's words.** BouncerServ's replies, the SASL and channel status, its
+error messages, the console output: they arrive in English and are shown as they arrive. So are the
+messages this program prints after an action. Translating them would mean matching soju's prose,
+which is exactly the coupling the rest of this program avoids. A translated interface around English
+answers is what you get, and it is worth knowing in advance.
+
+### Contributing a translation
+
+Copy `locales/en.json`, translate the values, name the file after the language tag —
+`locales/de.json` — and open a pull request. **No Go changes**: catalogs are found by filename and
+listed in the switcher on their own.
+
+- `_name` is the language's name **written in that language**: a reader looking for theirs wants to
+  see it as they write it.
+- `{name}` are placeholders, filled in by the program. Keep them, move them where the sentence needs
+  them: they are named, not positional, so reordering a sentence is safe.
+- A few values carry inline markup (`<code>`, `<strong>`). Keep the tags, translate around them.
+- Keys ending in `.one` / `.other` are plural forms, chosen on the count. Only these two exist: a
+  language with real plural categories (Polish, Russian, Arabic) would need CLDR rules, and with them
+  this program's first outside dependency. Say so in the pull request and it can be discussed.
+- **A partial translation is fine**: anything missing falls back to English, so it is better to send
+  half a file than nothing.
+
+```sh
+soju-webadmin -locales-dir ./locales    # try a translation without rebuilding
+go test ./...                           # checks that no key is missing or invented
 ```
 
 ## Updating, when the watcher runs beside a container

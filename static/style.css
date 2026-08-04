@@ -63,6 +63,13 @@ header nav a.on { color: var(--fg); border-bottom: 2px solid var(--accent); }
 header .right { margin-left: auto; display: flex; align-items: center; gap: .8rem; }
 .who { color: var(--dim); font-family: var(--mono); font-size: .85em; }
 
+/* language switcher: two-letter tags, the current one not a link */
+.langs { display: inline-flex; gap: .35rem; font-family: var(--mono); font-size: .78rem; }
+.langs a, .langs .cur { padding: 0 .25rem; border-radius: 3px; border: 1px solid transparent; }
+.langs a { color: var(--dim); }
+.langs a:hover { color: var(--fg); border-color: var(--line); text-decoration: none; }
+.langs .cur { color: var(--fg); border-color: var(--line); }
+
 main { max-width: 1100px; margin: 0 auto; padding: 1.4rem 1.2rem 4rem; }
 
 .bar { display: flex; align-items: center; gap: .8rem; margin-bottom: 1.2rem; flex-wrap: wrap; }

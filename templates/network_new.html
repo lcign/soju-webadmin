@@ -1,38 +1,38 @@
 {{template "head" .}}
-<div class="bar"><h1>Add network</h1><a class="button" href="{{.Prefix}}/">Cancel</a></div>
+<div class="bar"><h1>{{.T "page.add_network"}}</h1><a class="button" href="{{.Prefix}}/">{{.T "act.cancel"}}</a></div>
 
 <div class="card">
 	<form method="post" action="{{.Prefix}}/networks/new">
 		<input type="hidden" name="csrf" value="{{.CSRF}}">
 		<div class="grid">
-			<label>Host <span class="req">required</span>
+			<label>{{.T "net.host"}} <span class="req">{{.T "net.required"}}</span>
 				<input name="host" placeholder="irc.libera.chat" required autofocus>
 			</label>
-			<label>Port
+			<label>{{.T "net.port"}}
 				<input name="port" inputmode="numeric" placeholder="6697">
 			</label>
-			<label>Name
+			<label>{{.T "net.name"}}
 				<input name="name" placeholder="libera">
-				<small>How soju refers to this network. Leave it out and the address is used instead.</small>
+				<small>{{.T "net.name_hint"}}</small>
 			</label>
 			<label class="check">
-				<input type="checkbox" name="tls" value="1" checked> TLS
+				<input type="checkbox" name="tls" value="1" checked> {{.T "net.tls"}}
 			</label>
-			<label>Nickname
-				<input name="nickname" placeholder="defaults to your soju nick">
+			<label>{{.T "net.nickname"}}
+				<input name="nickname" placeholder="{{.T "net.nickname_placeholder"}}">
 			</label>
-			<label>Username
+			<label>{{.T "net.username"}}
 				<input name="username">
 			</label>
-			<label>Real name
+			<label>{{.T "net.realname"}}
 				<input name="realname">
 			</label>
-			<label>Server password
+			<label>{{.T "net.pass"}}
 				<input name="pass" type="password" autocomplete="new-password">
-				<small>Not the same as SASL, which is set once the network exists.</small>
+				<small>{{.T "net.pass_hint"}}</small>
 			</label>
 		</div>
-		<button class="primary">Add network</button>
+		<button class="primary">{{.T "net.add"}}</button>
 	</form>
 </div>
 {{template "foot" .}}

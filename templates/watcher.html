@@ -1,38 +1,35 @@
 {{template "head" .}}
 {{$p := .Prefix}}{{$csrf := .CSRF}}
 <div class="bar">
-	<h1>Watcher</h1>
+	<h1>{{.T "page.watcher"}}</h1>
 	<form method="post" action="{{$p}}/watcher/check" class="right">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
-		<button class="primary">Check now</button>
+		<button class="primary">{{.T "watch.check"}}</button>
 	</form>
 </div>
-<p class="muted">The check runs as you, on your own connection, and changes nothing — reconnecting is
-a button of its own. The watcher on the server does the same thing on a timer, and repairs what it
-finds.</p>
+<p class="muted">{{.T "watch.hint"}}</p>
 
 {{with .Data.Err}}<p class="flash bad">{{.}}</p>{{end}}
-{{if .Data.OwnOnly}}<p class="muted">The watcher's own state, log and policy concern the account it
-was set up for, so they are shown to admins only.</p>{{end}}
+{{if .Data.OwnOnly}}<p class="muted">{{.T "watch.admin_only"}}</p>{{end}}
 
 {{with .Data.Probes}}
 <section class="card">
-	<h2>Just checked</h2>
+	<h2>{{$.T "watch.just_checked"}}</h2>
 	<table>
-		<thead><tr><th>Network<th>Nick on the network<th>Answered<th></tr></thead>
+		<thead><tr><th>{{$.T "dash.network"}}<th>{{$.T "watch.nick"}}<th>{{$.T "watch.answered"}}<th></tr></thead>
 		<tbody>
 		{{range .}}
 		<tr>
 			<td>{{.Network}}
 			<td class="mono">{{.Nick}}
-			<td>{{if .Answered}}<span class="state connected">yes</span>{{else}}<span class="state disconnected">no</span>{{end}}
+			<td>{{if .Answered}}<span class="state connected">{{$.T "watch.yes"}}</span>{{else}}<span class="state disconnected">{{$.T "watch.no"}}</span>{{end}}
 				{{with .Note}} <span class="muted">{{.}}</span>{{end}}
 			<td class="num">
 				{{if and (not .Answered) (eq .State "connected")}}
 				<form method="post" action="{{$p}}/networks/{{.ID}}/reconnect">
 					<input type="hidden" name="csrf" value="{{$csrf}}">
 					<input type="hidden" name="from" value="watcher">
-					<button class="danger" data-confirm="Force {{.Network}} to reconnect?">Reconnect</button>
+					<button class="danger" data-confirm="{{$.T "danger.reconnect_confirm" "network" .Network}}">{{$.T "danger.reconnect"}}</button>
 				</form>
 				{{end}}
 		</tr>
@@ -44,9 +41,12 @@ was set up for, so they are shown to admins only.</p>{{end}}
 
 {{if .Data.States}}
 <section class="card">
-	<h2>What the watcher recorded</h2>
+	<h2>{{.T "watch.recorded"}}</h2>
 	<table>
-		<thead><tr><th>Network<th class="num">Silent probes<th class="num">Nick attempts<th>Last reconnect</tr></thead>
+		<thead><tr>
+			<th>{{.T "dash.network"}}<th class="num">{{.T "watch.silent"}}
+			<th class="num">{{.T "watch.nick_attempts"}}<th>{{.T "watch.last_reconnect"}}
+		</tr></thead>
 		<tbody>
 		{{range .Data.States}}
 		<tr>
@@ -58,28 +58,25 @@ was set up for, so they are shown to admins only.</p>{{end}}
 		{{end}}
 		</tbody>
 	</table>
-	<small>Read from {{.Data.StateDir}}. A network that never gives trouble sits at zero.</small>
+	<small>{{.T "watch.state_from" "dir" .Data.StateDir}}</small>
 </section>
 {{end}}
 
 {{if .Data.Editable}}
 <section class="card">
-	<h2>Policy</h2>
-	<p class="muted">Which networks to skip, and what to send their services to get the nick back.
-	<code>{nick}</code> and <code>{pass}</code> are filled in. The watcher reads this on its next pass.
-	⚠️ Credentials are <strong>not</strong> here: they stay in the watcher's own configuration, which
-	this page cannot read or write.</p>
+	<h2>{{.T "watch.policy"}}</h2>
+	<p class="muted">{{.TH "watch.policy_hint"}}</p>
 	<form method="post" action="{{$p}}/watcher/policy">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
 		<textarea name="policy" rows="18" class="mono" spellcheck="false">{{.Data.Policy}}</textarea>
-		<button class="primary">Save policy</button>
+		<button class="primary">{{.T "watch.policy_save"}}</button>
 	</form>
 </section>
 {{end}}
 
 {{with .Data.Log}}
 <section class="card">
-	<h2>Log</h2>
+	<h2>{{$.T "watch.log"}}</h2>
 	<pre class="out log">{{range .}}{{.}}
 {{end}}</pre>
 </section>

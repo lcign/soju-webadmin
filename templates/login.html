@@ -1,16 +1,16 @@
 {{template "head" .}}
 <div class="card narrow">
-	<h1>soju-webadmin</h1>
-	<p class="muted">Sign in with your soju account on <code>{{.Data.Addr}}</code>.</p>
+	<div class="bar"><h1>soju-webadmin</h1><span class="right">{{template "langs" .}}</span></div>
+	<p class="muted">{{.TH "login.subtitle" "addr" .Data.Addr}}</p>
 	{{with .Data.Error}}<p class="flash bad">{{.}}</p>{{end}}
 	<form method="post" action="{{.Prefix}}/login">
-		<label>Username
+		<label>{{.T "login.username"}}
 			<input name="username" autocomplete="username" autofocus required value="{{.Data.Username}}">
 		</label>
-		<label>Password
+		<label>{{.T "login.password"}}
 			<input name="password" type="password" autocomplete="current-password" required>
 		</label>
-		<button class="primary">Sign in</button>
+		<button class="primary">{{.T "login.submit"}}</button>
 	</form>
 </div>
 {{template "foot" .}}

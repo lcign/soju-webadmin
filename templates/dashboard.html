@@ -1,32 +1,36 @@
 {{template "head" .}}
 <div class="bar">
-	<h1>Networks</h1>
-	<a class="button primary" href="{{.Prefix}}/networks/new">Add network</a>
+	<h1>{{.T "page.networks"}}</h1>
+	<a class="button primary" href="{{.Prefix}}/networks/new">{{.T "dash.add"}}</a>
 </div>
 
 {{if .Data.Networks}}
 <table>
-	<thead><tr><th>Network<th>Address<th>State<th class="num">Channels<th></tr></thead>
+	<thead><tr>
+		<th>{{.T "dash.network"}}<th>{{.T "dash.address"}}<th>{{.T "dash.state"}}
+		<th class="num">{{.T "dash.channels"}}<th>
+	</tr></thead>
 	<tbody>
 	{{range .Data.Networks}}
 	<tr>
 		<td><a href="{{$.Prefix}}/networks/{{.ID}}">{{.Name}}</a>
-			{{if not (.Attr "name")}}<span class="tag warn">unnamed</span>{{end}}
+			{{if not (.Attr "name")}}<span class="tag warn">{{$.T "dash.unnamed"}}</span>{{end}}
 		<td class="mono">{{.Addr}}
+		{{/* The state is soju's own word, like the channel status: left as it comes. */}}
 		<td><span class="state {{.State}}">{{.State}}</span>
 			{{with .Error}}<div class="err">{{.}}</div>{{end}}
-		<td class="num">{{.Channels}}{{if .Detached}} <span class="muted">({{.Detached}} detached)</span>{{end}}
-		<td class="num"><a href="{{$.Prefix}}/networks/{{.ID}}">Manage</a>
+		<td class="num">{{.Channels}}{{if .Detached}} <span class="muted">{{$.TN "dash.detached" .Detached}}</span>{{end}}
+		<td class="num"><a href="{{$.Prefix}}/networks/{{.ID}}">{{$.T "dash.manage"}}</a>
 	</tr>
 	{{end}}
 	</tbody>
 </table>
 {{else}}
-<p class="muted">No networks yet.</p>
+<p class="muted">{{.T "dash.none"}}</p>
 {{end}}
 
 {{with .Data.Status}}
-<h2>Server</h2>
+<h2>{{$.T "dash.server"}}</h2>
 <pre class="out">{{range .}}{{.}}
 {{end}}</pre>
 {{end}}

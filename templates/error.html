@@ -1,7 +1,7 @@
 {{template "head" .}}
 <div class="card narrow">
-	<h1>Something went wrong</h1>
+	<h1>{{.T "error.title"}}</h1>
 	<p class="flash bad">{{.Data}}</p>
-	<p><a class="button" href="{{.Prefix}}/">Back to networks</a></p>
+	<p><a class="button" href="{{.Prefix}}/">{{.T "error.back"}}</a></p>
 </div>
 {{template "foot" .}}

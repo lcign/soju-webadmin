@@ -3,76 +3,78 @@
 <div class="bar">
 	<h1>{{$net.Name}}</h1>
 	<span class="state {{$net.State}}">{{$net.State}}</span>
-	<a class="button right" href="{{$p}}/">All networks</a>
+	<a class="button right" href="{{$p}}/">{{.T "net.all"}}</a>
 </div>
 {{with $net.Error}}<p class="flash bad">{{.}}</p>{{end}}
 {{if .Data.Nameless}}
-<p class="flash bad">This network has no name, so soju addresses it by its stored address. Channels
-and SASL may fail to resolve until you give it a name below.</p>
+<p class="flash bad">{{.T "net.nameless"}}</p>
 {{end}}
 {{with .Data.Status}}<p class="muted mono">{{.}}</p>{{end}}
 
 <div class="cols">
 <section class="card">
-	<h2>Connection</h2>
+	<h2>{{.T "net.connection"}}</h2>
 	<form method="post" action="{{$p}}/networks/{{$net.ID}}">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
 		<div class="grid">
-			<label>Host <input name="host" required value="{{$net.Attr "host"}}"></label>
-			<label>Port <input name="port" inputmode="numeric" value="{{$net.Attr "port"}}"></label>
-			<label>Name <input name="name" value="{{$net.Attr "name"}}"></label>
+			<label>{{.T "net.host"}} <input name="host" required value="{{$net.Attr "host"}}"></label>
+			<label>{{.T "net.port"}} <input name="port" inputmode="numeric" value="{{$net.Attr "port"}}"></label>
+			<label>{{.T "net.name"}} <input name="name" value="{{$net.Attr "name"}}"></label>
 			<label class="check">
-				<input type="checkbox" name="tls" value="1" {{if ne ($net.Attr "tls") "0"}}checked{{end}}> TLS
+				<input type="checkbox" name="tls" value="1" {{if ne ($net.Attr "tls") "0"}}checked{{end}}> {{.T "net.tls"}}
 			</label>
-			<label>Nickname <input name="nickname" value="{{$net.Attr "nickname"}}"></label>
-			<label>Username <input name="username" value="{{$net.Attr "username"}}"></label>
-			<label>Real name <input name="realname" value="{{$net.Attr "realname"}}"></label>
-			<label>Server password
-				<input name="pass" type="password" autocomplete="new-password" placeholder="unchanged">
-				<span class="check"><input type="checkbox" name="clearpass" value="1"> remove it</span>
+			<label>{{.T "net.nickname"}} <input name="nickname" value="{{$net.Attr "nickname"}}"></label>
+			<label>{{.T "net.username"}} <input name="username" value="{{$net.Attr "username"}}"></label>
+			<label>{{.T "net.realname"}} <input name="realname" value="{{$net.Attr "realname"}}"></label>
+			<label>{{.T "net.pass"}}
+				<input name="pass" type="password" autocomplete="new-password" placeholder="{{.T "net.pass_unchanged"}}">
+				<span class="check"><input type="checkbox" name="clearpass" value="1"> {{.T "net.pass_remove"}}</span>
 			</label>
 		</div>
-		<button class="primary">Save</button>
-		<small class="muted">Saving reconnects the network.</small>
+		<button class="primary">{{.T "act.save"}}</button>
+		<small class="muted">{{.T "net.save_hint"}}</small>
 	</form>
 </section>
 
 <section class="card">
-	<h2>SASL</h2>
+	<h2>{{.T "sasl.title"}}</h2>
 	<pre class="out">{{range .Data.SASL}}{{.}}
 {{end}}</pre>
 	<form method="post" action="{{$p}}/networks/{{$net.ID}}/sasl">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
 		<div class="grid">
-			<label>Account <input name="sasl_username"></label>
-			<label>Password <input name="sasl_password" type="password" autocomplete="new-password"></label>
+			<label>{{.T "sasl.account"}} <input name="sasl_username"></label>
+			<label>{{.T "sasl.password"}} <input name="sasl_password" type="password" autocomplete="new-password"></label>
 		</div>
-		<button class="primary">Set SASL PLAIN</button>
+		<button class="primary">{{.T "sasl.set"}}</button>
 		<button name="action" value="reset" class="danger"
-			data-confirm="Remove the stored SASL credentials for {{$net.Name}}?">Disable and forget</button>
+			data-confirm="{{.T "sasl.reset_confirm" "network" $net.Name}}">{{.T "sasl.reset"}}</button>
 	</form>
-	<h2>Client certificate</h2>
+	<h2>{{.T "cert.title"}}</h2>
 	<pre class="out">{{range .Data.CertFP}}{{.}}
 {{end}}</pre>
 	<form method="post" action="{{$p}}/networks/{{$net.ID}}/certfp">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
-		<label class="inline">Key
+		<label class="inline">{{.T "cert.key"}}
 			<select name="key-type">
 				<option value="ed25519">ed25519</option>
 				<option value="ecdsa">ecdsa</option>
 				<option value="rsa">rsa</option>
 			</select>
 		</label>
-		<button data-confirm="Generate a new certificate? Any fingerprint already registered with this network's services stops matching.">Generate</button>
+		<button data-confirm="{{.T "cert.generate_confirm"}}">{{.T "cert.generate"}}</button>
 	</form>
 </section>
 </div>
 
 <section class="card">
-	<h2>Channels</h2>
+	<h2>{{.T "chan.title"}}</h2>
 	{{if .Data.Channels}}
 	<table>
-		<thead><tr><th>Channel<th>Status<th>Detach<th>Notifications while detached<th></tr></thead>
+		<thead><tr>
+			<th>{{.T "chan.channel"}}<th>{{.T "chan.status"}}<th>{{.T "chan.detach"}}
+			<th>{{.T "chan.notifications"}}<th>
+		</tr></thead>
 		<tbody>
 		{{range .Data.Channels}}
 		<tr>
@@ -84,10 +86,10 @@ and SASL may fail to resolve until you give it a name below.</p>
 					<input type="hidden" name="channel" value="{{.Name}}">
 					{{if .Detached}}
 						<input type="hidden" name="detached" value="false">
-						<button>Attach</button>
+						<button>{{$.T "chan.attach"}}</button>
 					{{else}}
 						<input type="hidden" name="detached" value="true">
-						<button>Detach</button>
+						<button>{{$.T "chan.detach"}}</button>
 					{{end}}
 				</form>
 			<td>
@@ -95,60 +97,64 @@ and SASL may fail to resolve until you give it a name below.</p>
 					<input type="hidden" name="csrf" value="{{$csrf}}">
 					<input type="hidden" name="channel" value="{{.Name}}">
 					<select name="relay-detached">
-						<option value="default">default</option>
-						<option value="none">none</option>
-						<option value="highlight">highlight</option>
-						<option value="message">message</option>
+						<option value="default">{{$.T "filter.default"}}</option>
+						<option value="none">{{$.T "filter.none"}}</option>
+						<option value="highlight">{{$.T "filter.highlight"}}</option>
+						<option value="message">{{$.T "filter.message"}}</option>
 					</select>
-					<button>Apply</button>
+					<button>{{$.T "act.apply"}}</button>
 				</form>
 			<td class="num">
 				<form method="post" action="{{$p}}/networks/{{$net.ID}}/channels/delete">
 					<input type="hidden" name="csrf" value="{{$csrf}}">
 					<input type="hidden" name="channel" value="{{.Name}}">
-					<button class="danger" data-confirm="Leave {{.Name}} and remove it from soju?">Leave</button>
+					<button class="danger" data-confirm="{{$.T "chan.leave_confirm" "channel" .Name}}">{{$.T "chan.leave"}}</button>
 				</form>
 		</tr>
 		{{end}}
 		</tbody>
 	</table>
-	{{else}}<p class="muted">No channels saved for this network.</p>{{end}}
+	{{else}}<p class="muted">{{.T "chan.none"}}</p>{{end}}
 
 	<form method="post" action="{{$p}}/networks/{{$net.ID}}/channels" class="row">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
-		<label class="inline">Join <input name="channel" placeholder="#channel" required></label>
-		<label class="check"><input type="checkbox" name="detached" value="true"> detached</label>
-		<button class="primary">Join</button>
+		<label class="inline">{{.T "chan.join"}} <input name="channel" placeholder="#channel" required></label>
+		<label class="check"><input type="checkbox" name="detached" value="true"> {{.T "chan.detached_lc"}}</label>
+		<button class="primary">{{.T "chan.join_button"}}</button>
 	</form>
 </section>
 
 <section class="card">
-	<h2>Raw line</h2>
-	<p class="muted">Sent to the network as it stands, the same as BouncerServ's <code>network quote</code>.</p>
+	<h2>{{.T "quote.title"}}</h2>
+	<p class="muted">{{.TH "quote.hint"}}</p>
 	<form method="post" action="{{$p}}/networks/{{$net.ID}}/quote" class="row">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
 		<input name="line" class="mono grow" placeholder="PRIVMSG HostServ :REQUEST my.vhost" required>
-		<button>Send</button>
+		<button>{{.T "act.send"}}</button>
 	</form>
 </section>
 
 <section class="card danger-zone">
-	<h2>Danger zone</h2>
+	<h2>{{.T "danger.title"}}</h2>
 	<div class="row">
 		<form method="post" action="{{$p}}/networks/{{$net.ID}}/enabled">
 			<input type="hidden" name="csrf" value="{{$csrf}}">
 			{{if .Data.Enabled}}
 				<input type="hidden" name="enabled" value="0">
-				<button data-confirm="Disable {{$net.Name}}? soju disconnects and stops reconnecting.">Disable</button>
+				<button data-confirm="{{.T "danger.disable_confirm" "network" $net.Name}}">{{.T "danger.disable"}}</button>
 			{{else}}
 				<input type="hidden" name="enabled" value="1">
-				<button class="primary">Enable</button>
+				<button class="primary">{{.T "danger.enable"}}</button>
 			{{end}}
+		</form>
+		<form method="post" action="{{$p}}/networks/{{$net.ID}}/reconnect">
+			<input type="hidden" name="csrf" value="{{$csrf}}">
+			<button data-confirm="{{.T "danger.reconnect_confirm" "network" $net.Name}}">{{.T "danger.reconnect"}}</button>
 		</form>
 		<form method="post" action="{{$p}}/networks/{{$net.ID}}/delete">
 			<input type="hidden" name="csrf" value="{{$csrf}}">
 			<button class="danger"
-				data-confirm="Delete {{$net.Name}}? Its saved channels and its whole stored history go with it. This cannot be undone.">Delete network</button>
+				data-confirm="{{.T "danger.delete_confirm" "network" $net.Name}}">{{.T "danger.delete"}}</button>
 		</form>
 	</div>
 </section>

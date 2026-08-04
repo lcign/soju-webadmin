@@ -1,9 +1,9 @@
 {{template "head" .}}
 {{$p := .Prefix}}{{$csrf := .CSRF}}
-<h1>Users</h1>
+<h1>{{.T "page.users"}}</h1>
 
 <table>
-	<thead><tr><th>User<th>Change<th></tr></thead>
+	<thead><tr><th>{{.T "users.user"}}<th>{{.T "users.change"}}<th></tr></thead>
 	<tbody>
 	{{range .Data.Users}}
 	<tr>
@@ -12,25 +12,25 @@
 			<form method="post" action="{{$p}}/users/update" class="row">
 				<input type="hidden" name="csrf" value="{{$csrf}}">
 				<input type="hidden" name="username" value="{{.Name}}">
-				<input name="password" type="password" autocomplete="new-password" placeholder="new password">
+				<input name="password" type="password" autocomplete="new-password" placeholder="{{$.T "users.new_password"}}">
 				<select name="admin">
-					<option value="">admin: keep</option>
-					<option value="true">admin: yes</option>
-					<option value="false">admin: no</option>
+					<option value="">{{$.T "users.admin_keep"}}</option>
+					<option value="true">{{$.T "users.admin_yes"}}</option>
+					<option value="false">{{$.T "users.admin_no"}}</option>
 				</select>
 				<select name="enabled">
-					<option value="">enabled: keep</option>
-					<option value="true">enabled: yes</option>
-					<option value="false">enabled: no</option>
+					<option value="">{{$.T "users.enabled_keep"}}</option>
+					<option value="true">{{$.T "users.enabled_yes"}}</option>
+					<option value="false">{{$.T "users.enabled_no"}}</option>
 				</select>
-				<input name="max-networks" inputmode="numeric" class="tiny" placeholder="max nets">
-				<button>Apply</button>
+				<input name="max-networks" inputmode="numeric" class="tiny" placeholder="{{$.T "users.max_networks_short"}}">
+				<button>{{$.T "act.apply"}}</button>
 			</form>
 		<td class="num">
 			<form method="post" action="{{$p}}/users/delete">
 				<input type="hidden" name="csrf" value="{{$csrf}}">
 				<input type="hidden" name="username" value="{{.Name}}">
-				<button class="danger">Delete</button>
+				<button class="danger">{{$.T "act.delete"}}</button>
 			</form>
 	</tr>
 	{{end}}
@@ -39,29 +39,29 @@
 
 <div class="cols">
 <section class="card">
-	<h2>New user</h2>
+	<h2>{{.T "users.new"}}</h2>
 	<form method="post" action="{{$p}}/users/new">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
 		<div class="grid">
-			<label>Username <input name="username" required></label>
-			<label>Password <input name="password" type="password" autocomplete="new-password" required></label>
-			<label>Nick <input name="nick"></label>
-			<label>Real name <input name="realname"></label>
-			<label>Max networks <input name="max-networks" inputmode="numeric"></label>
-			<label class="check"><input type="checkbox" name="admin" value="1"> admin</label>
+			<label>{{.T "login.username"}} <input name="username" required></label>
+			<label>{{.T "login.password"}} <input name="password" type="password" autocomplete="new-password" required></label>
+			<label>{{.T "users.nick"}} <input name="nick"></label>
+			<label>{{.T "net.realname"}} <input name="realname"></label>
+			<label>{{.T "users.max_networks"}} <input name="max-networks" inputmode="numeric"></label>
+			<label class="check"><input type="checkbox" name="admin" value="1"> {{.T "nav.admin"}}</label>
 		</div>
-		<button class="primary">Create user</button>
+		<button class="primary">{{.T "users.create"}}</button>
 	</form>
 </section>
 
 <section class="card">
-	<h2>Server</h2>
+	<h2>{{.T "dash.server"}}</h2>
 	<pre class="out">{{range .Data.Status}}{{.}}
 {{end}}</pre>
 	<form method="post" action="{{$p}}/server/notice" class="row">
 		<input type="hidden" name="csrf" value="{{$csrf}}">
-		<input name="notice" class="grow" placeholder="Broadcast to every connected user" required>
-		<button data-confirm="Send this notice to every connected user?">Broadcast</button>
+		<input name="notice" class="grow" placeholder="{{.T "users.notice_placeholder"}}" required>
+		<button data-confirm="{{.T "users.notice_confirm"}}">{{.T "users.notice"}}</button>
 	</form>
 </section>
 </div>

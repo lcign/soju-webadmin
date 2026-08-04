@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 //go:embed templates/*.html static/*
@@ -33,6 +35,11 @@ type Server struct {
 	// policyPath is the watcher's policy file. Set, and it becomes editable here;
 	// the credentials live in a different file this program never touches.
 	policyPath string
+
+	// locales holds the translations of the pages' fixed text, and lang is the
+	// language this instance prefers before the browser and the reader are asked.
+	locales *Bundle
+	lang    string
 }
 
 func NewServer(cfg ServerConfig, sessions *SessionStore, prefix string, secure bool) (*Server, error) {
@@ -46,8 +53,11 @@ func NewServer(cfg ServerConfig, sessions *SessionStore, prefix string, secure b
 	return &Server{cfg: cfg, sessions: sessions, prefix: prefix, secure: secure, tmpl: tmpl}, nil
 }
 
-// page is what every template receives.
+// page is what every template receives. The locale is embedded, so a template
+// reaches a translation with {{.T "some.key"}} — and {{$.T ...}} inside a range.
 type page struct {
+	*Locale
+
 	Title   string
 	Prefix  string
 	User    string
@@ -62,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /{$}", s.auth(s.dashboard))
+	mux.HandleFunc("GET /lang/{tag}", s.setLang)
 	mux.HandleFunc("GET /login", s.loginForm)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", s.logout)
@@ -142,7 +153,7 @@ func (s *Server) auth(next handler) http.HandlerFunc {
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, sess *Session, name, title, nav string, data any) {
-	p := page{Title: title, Prefix: s.prefix, Nav: nav, Data: data}
+	p := page{Locale: s.locales.Pick(r, s.lang), Title: title, Prefix: s.prefix, Nav: nav, Data: data}
 	if sess != nil {
 		p.User = sess.User()
 		p.IsAdmin = sess.IsAdmin()
@@ -173,7 +184,7 @@ func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, s.prefix+"/", http.StatusSeeOther)
 		return
 	}
-	s.render(w, r, nil, "login.html", "Sign in", "", map[string]any{
+	s.render(w, r, nil, "login.html", "page.sign_in", "", map[string]any{
 		"Addr": s.cfg.Addr, "Error": "", "Username": "",
 	})
 }
@@ -188,7 +199,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.sessions.New(s.cfg, user, pass)
 	if err != nil {
-		s.render(w, r, nil, "login.html", "Sign in", "", map[string]any{
+		s.render(w, r, nil, "login.html", "page.sign_in", "", map[string]any{
 			"Addr":     s.cfg.Addr,
 			"Error":    err.Error(),
 			"Username": user,
@@ -204,6 +215,33 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 	http.Redirect(w, r, s.prefix+"/", http.StatusSeeOther)
+}
+
+// setLang remembers the reader's choice. It is a preference for display, kept in
+// a cookie of its own so it survives signing out and applies to the login page
+// too.
+func (s *Server) setLang(w http.ResponseWriter, r *http.Request) {
+	tag := r.PathValue("tag")
+	if !s.locales.Has(tag) {
+		http.NotFound(w, r)
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     langCookie,
+		Value:    tag,
+		Path:     s.prefix + "/",
+		MaxAge:   int((365 * 24 * time.Hour).Seconds()),
+		HttpOnly: true,
+		Secure:   s.secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	// Back where the reader was, as long as it is a page of this program: a
+	// redirect target taken from a header is not to be trusted further than that.
+	back := s.prefix + "/"
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host && strings.HasPrefix(ref.Path, s.prefix+"/") {
+		back = ref.Path
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +281,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, sess *Session
 		return nil
 	})
 	if err != nil {
-		s.render(w, r, sess, "error.html", "Error", "networks", err.Error())
+		s.render(w, r, sess, "error.html", "page.error", "networks", err.Error())
 		return
 	}
 
@@ -264,7 +302,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, sess *Session
 		return strings.ToLower(rows[i].Name()) < strings.ToLower(rows[j].Name())
 	})
 
-	s.render(w, r, sess, "dashboard.html", "Networks", "networks", map[string]any{
+	s.render(w, r, sess, "dashboard.html", "page.networks", "networks", map[string]any{
 		"Networks": rows,
 		"Status":   status,
 	})
@@ -304,7 +342,7 @@ func netAttrs(r *http.Request, isNew bool) map[string]string {
 }
 
 func (s *Server) networkNew(w http.ResponseWriter, r *http.Request, sess *Session) {
-	s.render(w, r, sess, "network_new.html", "Add network", "networks", nil)
+	s.render(w, r, sess, "network_new.html", "page.add_network", "networks", nil)
 }
 
 func (s *Server) networkCreate(w http.ResponseWriter, r *http.Request, sess *Session) {
@@ -362,7 +400,7 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request, sess *Session) 
 		return nil
 	})
 	if err != nil {
-		s.render(w, r, sess, "error.html", "Error", "networks", err.Error())
+		s.render(w, r, sess, "error.html", "page.error", "networks", err.Error())
 		return
 	}
 	d.Enabled = !strings.Contains(d.Status, "disabled")
@@ -558,7 +596,7 @@ func (s *Server) certfp(w http.ResponseWriter, r *http.Request, sess *Session) {
 // ---------------------------------------------------------------- console
 
 func (s *Server) console(w http.ResponseWriter, r *http.Request, sess *Session) {
-	s.render(w, r, sess, "console.html", "Console", "console", map[string]any{
+	s.render(w, r, sess, "console.html", "page.console", "console", map[string]any{
 		"Command": "", "Error": "", "Output": nil,
 	})
 }
@@ -584,7 +622,7 @@ func (s *Server) consoleRun(w http.ResponseWriter, r *http.Request, sess *Sessio
 		}
 		data["Output"] = out
 	}
-	s.render(w, r, sess, "console.html", "Console", "console", data)
+	s.render(w, r, sess, "console.html", "page.console", "console", data)
 }
 
 // ---------------------------------------------------------------- watcher
@@ -636,7 +674,7 @@ func (s *Server) watcherData(sess *Session) *watcherPage {
 }
 
 func (s *Server) watcher(w http.ResponseWriter, r *http.Request, sess *Session) {
-	s.render(w, r, sess, "watcher.html", "Watcher", "watcher", s.watcherData(sess))
+	s.render(w, r, sess, "watcher.html", "page.watcher", "watcher", s.watcherData(sess))
 }
 
 // watcherCheck runs the zombie check now, as the signed-in user, so it needs no
@@ -655,7 +693,7 @@ func (s *Server) watcherCheck(w http.ResponseWriter, r *http.Request, sess *Sess
 		user, pass := sess.Credentials()
 		d.Probes = ProbeNetworks(s.cfg, user, pass, "watch", nets)
 	}
-	s.render(w, r, sess, "watcher.html", "Watcher", "watcher", d)
+	s.render(w, r, sess, "watcher.html", "page.watcher", "watcher", d)
 }
 
 func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Session) {
@@ -746,10 +784,10 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request, sess *Session) {
 		return nil
 	})
 	if err != nil {
-		s.render(w, r, sess, "error.html", "Error", "users", err.Error())
+		s.render(w, r, sess, "error.html", "page.error", "users", err.Error())
 		return
 	}
-	s.render(w, r, sess, "users.html", "Users", "users", map[string]any{
+	s.render(w, r, sess, "users.html", "page.users", "users", map[string]any{
 		"Users":  users,
 		"Status": status,
 	})
@@ -842,7 +880,7 @@ func (s *Server) userDelete(w http.ResponseWriter, r *http.Request, sess *Sessio
 			f := strings.Fields(strings.Trim(reply[0], `"`))
 			tok = strings.Trim(f[len(f)-1], `"`)
 		}
-		s.render(w, r, sess, "confirm_user.html", "Delete user", "users", map[string]any{
+		s.render(w, r, sess, "confirm_user.html", "page.delete_user", "users", map[string]any{
 			"Username": name,
 			"Token":    tok,
 			"Reply":    reply,

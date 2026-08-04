@@ -1,9 +1,9 @@
 {{define "head"}}<!doctype html>
-<html lang="en">
+<html lang="{{.Tag}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Title}} — soju</title>
+<title>{{.T .Title}} — soju</title>
 <link rel="stylesheet" href="{{.Prefix}}/static/style.css">
 </head>
 <body>
@@ -11,21 +11,25 @@
 <header>
 	<a class="brand" href="{{.Prefix}}/">soju</a>
 	<nav>
-		<a href="{{.Prefix}}/" {{if eq .Nav "networks"}}class="on"{{end}}>Networks</a>
-		<a href="{{.Prefix}}/watcher" {{if eq .Nav "watcher"}}class="on"{{end}}>Watcher</a>
-		<a href="{{.Prefix}}/console" {{if eq .Nav "console"}}class="on"{{end}}>Console</a>
-		{{if .IsAdmin}}<a href="{{.Prefix}}/users" {{if eq .Nav "users"}}class="on"{{end}}>Users</a>{{end}}
+		<a href="{{.Prefix}}/" {{if eq .Nav "networks"}}class="on"{{end}}>{{.T "nav.networks"}}</a>
+		<a href="{{.Prefix}}/watcher" {{if eq .Nav "watcher"}}class="on"{{end}}>{{.T "nav.watcher"}}</a>
+		<a href="{{.Prefix}}/console" {{if eq .Nav "console"}}class="on"{{end}}>{{.T "nav.console"}}</a>
+		{{if .IsAdmin}}<a href="{{.Prefix}}/users" {{if eq .Nav "users"}}class="on"{{end}}>{{.T "nav.users"}}</a>{{end}}
 	</nav>
 	<form method="post" action="{{.Prefix}}/logout" class="right">
 		<input type="hidden" name="csrf" value="{{.CSRF}}">
-		<span class="who">{{.User}}{{if .IsAdmin}} <span class="tag">admin</span>{{end}}</span>
-		<button class="link">Sign out</button>
+		{{template "langs" .}}
+		<span class="who">{{.User}}{{if .IsAdmin}} <span class="tag">{{.T "nav.admin"}}</span>{{end}}</span>
+		<button class="link">{{.T "nav.sign_out"}}</button>
 	</form>
 </header>
 {{end}}
 <main>
 {{with .Flash}}<p class="flash {{if .Bad}}bad{{else}}good{{end}}">{{.Text}}</p>{{end}}
 {{end}}
+
+{{/* The language switcher only appears when there is something to switch to. */}}
+{{define "langs"}}{{if gt (len .Languages) 1}}<span class="langs">{{range .Languages}}{{if $.IsCurrent .}}<span class="cur" title="{{.Name}}">{{.Tag}}</span>{{else}}<a href="{{$.Prefix}}/lang/{{.Tag}}" title="{{.Name}}">{{.Tag}}</a>{{end}}{{end}}</span>{{end}}{{end}}
 
 {{define "foot"}}
 </main>

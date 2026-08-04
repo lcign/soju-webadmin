@@ -21,6 +21,8 @@ func main() {
 		keyFile  = flag.String("tls-key", "", "private key for serving HTTPS directly")
 		secureCk = flag.Bool("secure-cookie", false, "mark the session cookie Secure (set this behind an HTTPS proxy)")
 		idle     = flag.Duration("idle-timeout", time.Hour, "close a session after this long without a request")
+		lang     = flag.String("lang", "en", "language this instance prefers; the browser and the reader can still choose")
+		locales  = flag.String("locales-dir", "", "read translations from this directory instead of the ones built in")
 
 		watch      = flag.Bool("watch", false, "run the watcher instead of the web interface")
 		watchOnce  = flag.Bool("watch-once", false, "with -watch, do a single pass and exit (for a systemd timer or cron)")
@@ -73,11 +75,17 @@ func main() {
 		return
 	}
 
+	bundle, err := LoadLocales(*locales)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	srv, err := NewServer(cfg, NewSessionStore(*idle), prefix, *secureCk || *certFile != "")
 	if err != nil {
 		log.Fatal(err)
 	}
 	srv.stateDir, srv.policyPath = *watchState, *policy
+	srv.locales, srv.lang = bundle, *lang
 
 	hs := &http.Server{
 		Addr:              *listen,
@@ -89,7 +97,12 @@ func main() {
 	if *certFile != "" {
 		scheme = "https"
 	}
-	log.Printf("soju at %s (tls=%v), serving on %s://%s%s/", cfg.Addr, cfg.TLS, scheme, *listen, prefix)
+	var tags []string
+	for _, c := range bundle.Languages() {
+		tags = append(tags, c.Tag)
+	}
+	log.Printf("soju at %s (tls=%v), serving on %s://%s%s/ (languages: %s)",
+		cfg.Addr, cfg.TLS, scheme, *listen, prefix, strings.Join(tags, " "))
 
 	if *certFile != "" {
 		err = hs.ListenAndServeTLS(*certFile, *keyFile)

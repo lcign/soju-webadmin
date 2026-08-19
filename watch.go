@@ -14,7 +14,11 @@ package main
 //     registers, so after a netsplit — where nothing reconnects — a nick lost to a
 //     ghost stays lost. Same escalation as a human would do: NICK, then the
 //     network's services, then identify first; then stop for a while, since by
-//     then the nick may simply belong to somebody else.
+//     then the nick may simply belong to somebody else. On SASL-only networks,
+//     where the live session has no NickServ password and a plain NICK is refused
+//     by enforcement, the escalation cannot win: there the policy sets
+//     `recover = reconnect` and the watcher forces a reconnect instead, so soju
+//     re-does SASL on a fresh connection and the server hands the nick back.
 //
 // Everything here goes through soju: raw lines via `network quote`, no writes to
 // its database and no second connection to the remote network.
@@ -210,7 +214,14 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 		held = "somebody holds it"
 	}
 	log.Printf("%s: nick is %q, not %s (%s)", name, current, w.nick, held)
-	w.recoverNick(bound, name, current, ns, st)
+	// Reti SASL-only (recover = reconnect): la sessione viva e' un Guest senza
+	// password NickServ da presentare e il NICK nudo lo respinge l'enforce; l'unico
+	// modo pulito e' far ridialare soju, che rifa' la SASL e riprende il nick.
+	if ns.Get("recover") == "reconnect" {
+		w.reconnectForNick(admin, n, current, st)
+	} else {
+		w.recoverNick(bound, name, current, ns, st)
+	}
 	w.saveState(name, st)
 	return nil
 }
@@ -341,6 +352,41 @@ func (w *Watcher) recoverNick(bound *Client, name, current string, ns *Section, 
 				"back. Waiting %s before trying again — it may simply belong to somebody else\n"+
 				"now.\n", name, current, w.nick, w.cooldown))
 	}
+}
+
+// reconnectForNick reclaims the nick on a SASL-only network by forcing soju to
+// dial again: on a fresh connection soju re-does SASL and the server lets it keep
+// the registered nick. Used where the policy sets `recover = reconnect`, because
+// there the live (Guest) session has no NickServ password to present and a plain
+// NICK is refused by nick enforcement. Rate-limited by the same cooldown as the
+// escalation, so a nick that stays lost does not turn into a reconnect storm.
+func (w *Watcher) reconnectForNick(admin *Client, n *Network, current string, st *watchState) {
+	now := time.Now()
+	name := n.Name()
+	if st.NickStep > 0 && now.Sub(time.Unix(st.NickLast, 0)) < w.cooldown {
+		return // reconnect gia' forzato di recente: lascia il tempo di ripartire
+	}
+	st.NickStep = 1
+	st.NickLast = now.Unix()
+	w.stats.nick++
+	addr := n.Addr()
+	if w.dry {
+		log.Printf("%s: would run: network update %s -addr %s (reclaim %s by reconnect)", name, name, addr, w.nick)
+		return
+	}
+	log.Printf("%s: nick is %q, forcing a reconnect to reclaim %s via SASL", name, current, w.nick)
+	out, err := admin.Serv("network", "update", name, "-addr", addr)
+	st.LastRepair = now.Unix()
+	if err != nil {
+		log.Printf("%s: reconnect failed: %v", name, err)
+		w.alert("soju: cannot reclaim the nick on "+name,
+			fmt.Sprintf("On %q the nick is %q instead of %q. The watcher tried to reclaim it by\n"+
+				"forcing a reconnect (SASL-only network), but that failed: %v\n\n"+
+				"Sort it out by hand.\n", name, current, w.nick, err))
+		return
+	}
+	w.stats.repaired++
+	log.Printf("%s: reconnect forced to reclaim the nick (soju: %s)", name, strings.Join(out, " "))
 }
 
 // ---------------------------------------------------------------- manual check

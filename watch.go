@@ -182,6 +182,8 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 	}
 	defer bound.Close()
 
+	bound.Send("AWAY :watch")
+
 	answered, inUse := w.probe(bound, w.nick)
 	if !answered {
 		w.stats.silent++

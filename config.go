@@ -1,8 +1,5 @@
 package main
 
-// A very small INI reader for the watcher's configuration. It holds credentials,
-// so it is expected to be mode 0600 and is refused if it is readable by others.
-
 import (
 	"bufio"
 	"fmt"
@@ -51,8 +48,6 @@ func (c *Config) Section(name string) *Section {
 	return &Section{Name: name, Keys: map[string]string{}}
 }
 
-// NetworkSection returns the settings for one network, falling back to
-// [network default] for anything it does not set.
 func (c *Config) NetworkSection(name string) *Section {
 	def := c.Section("network default")
 	own := c.Section("network " + name)
@@ -66,18 +61,12 @@ func (c *Config) NetworkSection(name string) *Section {
 	return merged
 }
 
-// policyKeys are the only settings a policy file may carry. The credentials and
-// anything that runs a command stay in the file only the watcher can read: a
-// policy file is editable from the web interface, and nothing editable from there
-// should be able to hand root a shell or read a password back.
 var policyKeys = map[string]bool{
 	"interval": true, "nick-cooldown": true, "nick": true, "client": true,
 	"recover": true, "identify": true, "skip": true,
 	"op-channels": true, "op-command": true,
 }
 
-// MergePolicy layers a policy file over this configuration, ignoring keys a
-// policy is not allowed to set.
 func (c *Config) MergePolicy(p *Config) []string {
 	var refused []string
 	for _, src := range p.sections {
@@ -108,14 +97,10 @@ func (c *Config) has(name string) bool {
 	return false
 }
 
-// LoadConfig reads a configuration that holds credentials, so it refuses a file
-// others can read.
 func LoadConfig(path string) (*Config, error) {
 	return loadConfig(path, true)
 }
 
-// LoadPolicy reads a policy file, which holds no secrets and is expected to be
-// writable by the web interface.
 func LoadPolicy(path string) (*Config, error) {
 	return loadConfig(path, false)
 }

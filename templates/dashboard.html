@@ -16,7 +16,6 @@
 		<td><a href="{{$.Prefix}}/networks/{{.ID}}">{{.Name}}</a>
 			{{if not (.Attr "name")}}<span class="tag warn">{{$.T "dash.unnamed"}}</span>{{end}}
 		<td class="mono">{{.Addr}}
-		{{/* The state is soju's own word, like the channel status: left as it comes. */}}
 		<td><span class="state {{.State}}">{{.State}}</span>
 			{{with .Error}}<div class="err">{{.}}</div>{{end}}
 		<td class="num">{{.Channels}}{{if .Detached}} <span class="muted">{{$.TN "dash.detached" .Detached}}</span>{{end}}

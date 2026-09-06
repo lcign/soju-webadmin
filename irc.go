@@ -1,9 +1,5 @@
 package main
 
-// A minimal IRC message codec — only what this program needs: tags (for the
-// standard-replies soju sends), prefix, command, params. There is no attempt at
-// covering the whole protocol.
-
 import (
 	"errors"
 	"strings"
@@ -16,8 +12,6 @@ type Message struct {
 	Params  []string
 }
 
-// Param returns the i-th parameter, or "" when it is absent, so callers can
-// read optional parameters without bounds checks.
 func (m *Message) Param(i int) string {
 	if i < 0 || i >= len(m.Params) {
 		return ""
@@ -25,7 +19,6 @@ func (m *Message) Param(i int) string {
 	return m.Params[i]
 }
 
-// Nick returns the nickname part of the prefix ("BouncerServ!…" -> "BouncerServ").
 func (m *Message) Nick() string {
 	if i := strings.IndexAny(m.Prefix, "!@"); i >= 0 {
 		return m.Prefix[:i]
@@ -55,8 +48,6 @@ func parseMessage(line string) (*Message, error) {
 		line = strings.TrimLeft(rest, " ")
 	}
 
-	// The trailing parameter starts at " :" and is the only one allowed to hold
-	// spaces, so it has to be split off before the others.
 	var trailing string
 	hasTrailing := false
 	if i := strings.Index(line, " :"); i >= 0 {
@@ -86,8 +77,7 @@ func formatMessage(command string, params ...string) string {
 	b.WriteString(command)
 	for i, p := range params {
 		b.WriteString(" ")
-		// A parameter that is empty, holds a space or opens with ':' can only be
-		// expressed as the trailing one, which must come last.
+
 		if i == len(params)-1 && (p == "" || strings.ContainsAny(p, " ") || strings.HasPrefix(p, ":")) {
 			b.WriteString(":")
 		}
@@ -95,9 +85,6 @@ func formatMessage(command string, params ...string) string {
 	}
 	return b.String()
 }
-
-// Tag and attribute values share one escaping scheme: soju.im/bouncer-networks
-// encodes network attributes exactly like message tags.
 
 func parseTags(s string) map[string]string {
 	tags := map[string]string{}
@@ -139,7 +126,7 @@ func unescapeTagValue(v string) string {
 		case '\\':
 			b.WriteByte('\\')
 		default:
-			b.WriteByte(v[i]) // an unknown escape drops the backslash
+			b.WriteByte(v[i])
 		}
 	}
 	return b.String()
@@ -160,15 +147,11 @@ func cut(s, sep string) (before, after string, found bool) {
 	return strings.Cut(s, sep)
 }
 
-// splitWords splits a line the way BouncerServ does: spaces separate words,
-// single or double quotes group them, and a backslash escapes the next
-// character. The console uses it so what is typed there behaves exactly as it
-// would in an IRC client talking to BouncerServ.
 func splitWords(s string) ([]string, error) {
 	var words []string
 	var word strings.Builder
 	escape := false
-	delim := ' ' // ' ' while outside quotes, otherwise the closing quote
+	delim := ' '
 	prev := ' '
 
 	for _, r := range s {

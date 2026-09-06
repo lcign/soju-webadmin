@@ -28,7 +28,6 @@
 {{with .Flash}}<p class="flash {{if .Bad}}bad{{else}}good{{end}}">{{.Text}}</p>{{end}}
 {{end}}
 
-{{/* The language switcher only appears when there is something to switch to. */}}
 {{define "langs"}}{{if gt (len .Languages) 1}}<span class="langs">{{range .Languages}}{{if $.IsCurrent .}}<span class="cur" title="{{.Name}}">{{.Tag}}</span>{{else}}<a href="{{$.Prefix}}/lang/{{.Tag}}" title="{{.Name}}">{{.Tag}}</a>{{end}}{{end}}</span>{{end}}{{end}}
 
 {{define "foot"}}

@@ -1,9 +1,5 @@
 package main
 
-// Keeps the catalogs honest, which is what makes a contributed translation safe to
-// accept: a missing key is allowed and falls back to English, an invented one is
-// not — it is either a typo or a leftover from a key that was renamed.
-
 import (
 	"io/fs"
 	"regexp"
@@ -11,7 +7,6 @@ import (
 	"testing"
 )
 
-// Keys as they appear in the templates: {{.T "x"}}, {{$.TH "y" ...}}, {{.TN "z" n}}.
 var keyRe = regexp.MustCompile(`\{\{-?\s*\$?\.T[HN]?\s+"([^"]+)"`)
 
 func loadBundle(t *testing.T) *Bundle {
@@ -23,8 +18,6 @@ func loadBundle(t *testing.T) *Bundle {
 	return b
 }
 
-// templateKeys collects every key the templates ask for, with the plural forms
-// expanded, since TN looks up "<key>.one" and "<key>.other".
 func templateKeys(t *testing.T) map[string]bool {
 	t.Helper()
 	names, err := fs.Glob(assets, "templates/*.html")
@@ -40,7 +33,7 @@ func templateKeys(t *testing.T) map[string]bool {
 		text := string(raw)
 		for _, m := range keyRe.FindAllStringSubmatch(text, -1) {
 			key := m[1]
-			// A TN call needs both forms; the call site is recognisable by ".TN ".
+
 			if strings.Contains(text, ".TN \""+key+"\"") {
 				keys[key+".one"] = true
 				keys[key+".other"] = true
@@ -55,9 +48,6 @@ func templateKeys(t *testing.T) map[string]bool {
 	return keys
 }
 
-// The page titles are keys too, but they are named in the Go code, not in the
-// templates. A network's name also arrives through .T and is meant to fall
-// through untranslated, so only these fixed ones are checked.
 var titleKeys = []string{
 	"page.networks", "page.add_network", "page.watcher", "page.console",
 	"page.users", "page.sign_in", "page.delete_user", "page.error",
@@ -101,7 +91,6 @@ func TestTranslationsInventNoKeys(t *testing.T) {
 	}
 }
 
-// A partial translation must stay usable: whatever is missing falls back.
 func TestFallbackToEnglish(t *testing.T) {
 	b := loadBundle(t)
 	l := b.Locale("it")
@@ -112,7 +101,6 @@ func TestFallbackToEnglish(t *testing.T) {
 		t.Errorf("an unknown key should show itself, got %q", got)
 	}
 
-	// A key only English has must come back in English, not as the key.
 	en := b.catalogs[defaultTag]
 	en.Msgs["test.only.english"] = "Only here"
 	defer delete(en.Msgs, "test.only.english")
@@ -139,8 +127,8 @@ func TestAcceptLanguage(t *testing.T) {
 	for _, tc := range []struct{ header, want string }{
 		{"it-IT,it;q=0.9,en;q=0.8", "it"},
 		{"en-GB,en;q=0.9", "en"},
-		{"de-DE,de;q=0.9", ""},      // no catalog: leave the default alone
-		{"fr;q=0.8,it;q=0.9", "it"}, // quality decides the order
+		{"de-DE,de;q=0.9", ""},
+		{"fr;q=0.8,it;q=0.9", "it"},
 		{"", ""},
 	} {
 		if got := b.matchHeader(tc.header); got != tc.want {

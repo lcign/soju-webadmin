@@ -1,11 +1,5 @@
 package main
 
-// HTTP layer: routing, forms, rendering.
-//
-// Every page is rendered server-side; the only JavaScript is a confirmation on
-// destructive buttons. That keeps the whole thing servable under a strict CSP and
-// working without a build step.
-
 import (
 	"embed"
 	"fmt"
@@ -25,19 +19,14 @@ var assets embed.FS
 type Server struct {
 	cfg      ServerConfig
 	sessions *SessionStore
-	prefix   string // base path, "" or "/soju" style, no trailing slash
-	secure   bool   // mark the session cookie Secure
+	prefix   string
+	secure   bool
 	tmpl     *template.Template
 
-	// stateDir is the watcher's state directory, read-only as far as this side is
-	// concerned: it is where its log and per-network state are read from.
 	stateDir string
-	// policyPath is the watcher's policy file. Set, and it becomes editable here;
-	// the credentials live in a different file this program never touches.
+
 	policyPath string
 
-	// locales holds the translations of the pages' fixed text, and lang is the
-	// language this instance prefers before the browser and the reader are asked.
 	locales *Bundle
 	lang    string
 }
@@ -53,8 +42,6 @@ func NewServer(cfg ServerConfig, sessions *SessionStore, prefix string, secure b
 	return &Server{cfg: cfg, sessions: sessions, prefix: prefix, secure: secure, tmpl: tmpl}, nil
 }
 
-// page is what every template receives. The locale is embedded, so a template
-// reaches a translation with {{.T "some.key"}} — and {{$.T ...}} inside a range.
 type page struct {
 	*Locale
 
@@ -64,7 +51,7 @@ type page struct {
 	IsAdmin bool
 	CSRF    string
 	Flash   *Flash
-	Nav     string // which nav entry to mark as current
+	Nav     string
 	Data    any
 }
 
@@ -115,8 +102,6 @@ func (s *Server) Handler() http.Handler {
 	return s.headers(h)
 }
 
-// headers sets the defensive headers this app can afford: it embeds nothing and
-// loads nothing from anywhere else.
 func (s *Server) headers(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy",
@@ -127,11 +112,8 @@ func (s *Server) headers(next http.Handler) http.Handler {
 	})
 }
 
-// ---------------------------------------------------------------- plumbing
-
 type handler func(http.ResponseWriter, *http.Request, *Session)
 
-// auth requires a session, and on POST a matching CSRF token.
 func (s *Server) auth(next handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := s.sessions.Get(r)
@@ -163,12 +145,11 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, sess *Session, n
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, name, p); err != nil {
-		// The response is likely half-written by now, so this can only be logged.
+
 		fmt.Printf("template %s: %v\n", name, err)
 	}
 }
 
-// back redirects to where the form was submitted from, with a message.
 func (s *Server) back(w http.ResponseWriter, r *http.Request, sess *Session, to string, err error, ok string) {
 	if err != nil {
 		sess.SetFlash(err.Error(), true)
@@ -177,8 +158,6 @@ func (s *Server) back(w http.ResponseWriter, r *http.Request, sess *Session, to 
 	}
 	http.Redirect(w, r, s.prefix+to, http.StatusSeeOther)
 }
-
-// ---------------------------------------------------------------- login
 
 func (s *Server) loginForm(w http.ResponseWriter, r *http.Request) {
 	if s.sessions.Get(r) != nil {
@@ -218,9 +197,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.prefix+"/", http.StatusSeeOther)
 }
 
-// setLang remembers the reader's choice. It is a preference for display, kept in
-// a cookie of its own so it survives signing out and applies to the login page
-// too.
 func (s *Server) setLang(w http.ResponseWriter, r *http.Request) {
 	tag := r.PathValue("tag")
 	if !s.locales.Has(tag) {
@@ -236,8 +212,7 @@ func (s *Server) setLang(w http.ResponseWriter, r *http.Request) {
 		Secure:   s.secure,
 		SameSite: http.SameSiteLaxMode,
 	})
-	// Back where the reader was, as long as it is a page of this program: a
-	// redirect target taken from a header is not to be trusted further than that.
+
 	back := s.prefix + "/"
 	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host && strings.HasPrefix(ref.Path, s.prefix+"/") {
 		back = ref.Path
@@ -255,8 +230,6 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, s.prefix+"/login", http.StatusSeeOther)
 }
 
-// ---------------------------------------------------------------- dashboard
-
 type netRow struct {
 	*Network
 	Channels int
@@ -273,8 +246,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, sess *Session
 		if nets, err = c.ListNetworks(); err != nil {
 			return err
 		}
-		// One call covers the channels of every network: soju prints them with a
-		// "/network" suffix when the connection is not bound to one.
+
 		chans, _ = c.Channels("")
 		if c.IsAdmin {
 			status, _ = c.Serv("server", "status")
@@ -309,11 +281,6 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, sess *Session
 	})
 }
 
-// ---------------------------------------------------------------- networks
-
-// netAttrs reads the network form. Attributes whose value is empty are only sent
-// when the field is meant to be clearable: for the password, an empty box means
-// "leave it as it is", since the current one is never shown.
 func netAttrs(r *http.Request, isNew bool) map[string]string {
 	attrs := map[string]string{
 		"host":     strings.TrimSpace(r.PostFormValue("host")),
@@ -370,7 +337,7 @@ type netPage struct {
 	Channels []*Channel
 	SASL     []string
 	CertFP   []string
-	Status   string // the `network status` line for this network, as soju wrote it
+	Status   string
 	Enabled  bool
 	Nameless bool
 }
@@ -388,9 +355,6 @@ func (s *Server) network(w http.ResponseWriter, r *http.Request, sess *Session) 
 		d.SASL, _ = c.Serv("sasl", "status", "-network", name)
 		d.CertFP, _ = c.Serv("certfp", "fingerprint", "-network", name)
 
-		// Whether a network is enabled is not one of the attributes the
-		// bouncer-networks extension carries, so it is read off the line
-		// `network status` prints for it.
 		if lines, err := c.Serv("network", "status"); err == nil {
 			for _, l := range lines {
 				if strings.HasPrefix(l, name+" [") || strings.HasPrefix(l, name+" (") {
@@ -417,8 +381,6 @@ func (s *Server) networkUpdate(w http.ResponseWriter, r *http.Request, sess *Ses
 	s.back(w, r, sess, "/networks/"+id, err, "Network saved.")
 }
 
-// networkEnabled goes through BouncerServ: soju.im/bouncer-networks has no
-// attribute for it.
 func (s *Server) networkEnabled(w http.ResponseWriter, r *http.Request, sess *Session) {
 	id := r.PathValue("id")
 	on := r.PostFormValue("enabled") == "1"
@@ -468,9 +430,6 @@ func (s *Server) networkQuote(w http.ResponseWriter, r *http.Request, sess *Sess
 	s.back(w, r, sess, "/networks/"+id, err, strings.Join(out, " "))
 }
 
-// ---------------------------------------------------------------- channels
-
-// chanFlags reads the per-channel options shared by create and update.
 func chanFlags(r *http.Request) []string {
 	var out []string
 	for _, f := range []string{"relay-detached", "reattach-on", "detach-on"} {
@@ -484,8 +443,6 @@ func chanFlags(r *http.Request) []string {
 	return out
 }
 
-// chanArg builds the "#channel/network" form BouncerServ needs when the
-// connection is not bound to a network.
 func chanArg(channel, network string) string {
 	return channel + "/" + network
 }
@@ -546,8 +503,6 @@ func (s *Server) channelDelete(w http.ResponseWriter, r *http.Request, sess *Ses
 	s.back(w, r, sess, "/networks/"+id, err, "Left "+name+" and forgot it.")
 }
 
-// ---------------------------------------------------------------- sasl, certfp
-
 func (s *Server) sasl(w http.ResponseWriter, r *http.Request, sess *Session) {
 	id := r.PathValue("id")
 	action := r.PostFormValue("action")
@@ -594,8 +549,6 @@ func (s *Server) certfp(w http.ResponseWriter, r *http.Request, sess *Session) {
 		"Certificate generated. Register the fingerprint with the network's services, then reconnect.")
 }
 
-// ---------------------------------------------------------------- console
-
 func (s *Server) console(w http.ResponseWriter, r *http.Request, sess *Session) {
 	s.render(w, r, sess, "console.html", "page.console", "console", map[string]any{
 		"Command": "", "Error": "", "Output": nil,
@@ -609,8 +562,7 @@ func (s *Server) consoleRun(w http.ResponseWriter, r *http.Request, sess *Sessio
 		var out []string
 		err := sess.Do(s.cfg, func(c *Client) error {
 			var err error
-			// The line is split the way BouncerServ itself splits it, quotes
-			// included, then handed over word by word.
+
 			words, err2 := splitWords(cmd)
 			if err2 != nil {
 				return err2
@@ -626,31 +578,23 @@ func (s *Server) consoleRun(w http.ResponseWriter, r *http.Request, sess *Sessio
 	s.render(w, r, sess, "console.html", "page.console", "console", data)
 }
 
-// ---------------------------------------------------------------- watcher
-
 type watcherPage struct {
 	StateDir string
 	States   []NetworkState
 	Log      []string
 	Err      string
-	Policy   string // the policy file as text, when there is one
+	Policy   string
 	Editable bool
-	OwnOnly  bool // not an admin: only the manual check is available
+	OwnOnly  bool
 	Probes   []ProbeResult
-	OpRows   []OpRow // op-channels per rete, per la sezione dedicata
+	OpRows   []OpRow
 }
 
-// OpRow e' una riga della sezione "op nei canali": una rete e i canali (dal
-// policy.conf) in cui il watcher deve tenersi oppato.
 type OpRow struct {
 	Network  string
 	Channels string
 }
 
-// watcherData reads what the watcher left behind. The state, the log and the
-// policy describe one user's networks — whoever the watcher was configured for —
-// so they are shown to admins only; the manual check is everyone's, since it runs
-// on the caller's own connection.
 func (s *Server) watcherData(sess *Session) *watcherPage {
 	d := &watcherPage{StateDir: s.stateDir, Editable: s.policyPath != ""}
 	if !sess.IsAdmin() {
@@ -683,9 +627,6 @@ func (s *Server) watcherData(sess *Session) *watcherPage {
 	return d
 }
 
-// opRows elenca le reti (da soju) con i canali di op attuali (dal policy.conf),
-// per la sezione strutturata. Se soju non risponde torna vuota: la pagina resta
-// utilizzabile e si puo' sempre usare il textarea grezzo.
 func (s *Server) opRows(sess *Session) []OpRow {
 	pol, err := LoadPolicy(s.policyPath)
 	if err != nil {
@@ -714,8 +655,6 @@ func (s *Server) watcher(w http.ResponseWriter, r *http.Request, sess *Session) 
 	s.render(w, r, sess, "watcher.html", "page.watcher", "watcher", s.watcherData(sess))
 }
 
-// watcherCheck runs the zombie check now, as the signed-in user, so it needs no
-// stored credentials of its own.
 func (s *Server) watcherCheck(w http.ResponseWriter, r *http.Request, sess *Session) {
 	var nets []*Network
 	err := sess.Do(s.cfg, func(c *Client) error {
@@ -744,11 +683,9 @@ func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Ses
 	}
 	text := strings.ReplaceAll(r.PostFormValue("policy"), "\r\n", "\n")
 	if !strings.HasSuffix(text, "\n") {
-		text += "\n" // a browser drops the last newline; a config file should keep it
+		text += "\n"
 	}
 
-	// Refuse to save something the watcher would then choke on, and say which keys
-	// a policy is not allowed to carry.
 	tmp, err := os.CreateTemp(filepath.Dir(s.policyPath), ".policy-*")
 	if err != nil {
 		s.back(w, r, sess, "/watcher", err, "")
@@ -782,9 +719,6 @@ func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Ses
 	s.back(w, r, sess, "/watcher", nil, "Policy saved; the watcher picks it up on its next pass.")
 }
 
-// watcherOpChannels saves the op-channels list per network from the structured
-// section, touching only the op-channels line of each network and leaving the
-// rest of the policy file (recover, skip, op-command, comments) as it was.
 func (s *Server) watcherOpChannels(w http.ResponseWriter, r *http.Request, sess *Session) {
 	if !sess.IsAdmin() {
 		http.Error(w, "admin only", http.StatusForbidden)
@@ -808,7 +742,7 @@ func (s *Server) watcherOpChannels(w http.ResponseWriter, r *http.Request, sess 
 	for i, name := range nets {
 		val := ""
 		if i < len(chans) {
-			val = strings.Join(splitList(chans[i]), " ") // normalizza spazi/virgole
+			val = strings.Join(splitList(chans[i]), " ")
 		}
 		text = policySetKey(text, name, "op-channels", val)
 	}
@@ -816,7 +750,6 @@ func (s *Server) watcherOpChannels(w http.ResponseWriter, r *http.Request, sess 
 		text += "\n"
 	}
 
-	// stessa rete di sicurezza del salvataggio grezzo: deve restare una policy valida
 	tmp, err := os.CreateTemp(filepath.Dir(s.policyPath), ".policy-*")
 	if err != nil {
 		s.back(w, r, sess, "/watcher", err, "")
@@ -841,9 +774,6 @@ func (s *Server) watcherOpChannels(w http.ResponseWriter, r *http.Request, sess 
 	s.back(w, r, sess, "/watcher", nil, "Op channels saved; the watcher picks it up on its next pass.")
 }
 
-// policySetKey sets (or removes, when value is empty) one key inside the
-// [network <network>] section of a policy file's text, leaving everything else
-// untouched. It creates the section when it is missing and the value is not empty.
 func policySetKey(text, network, key, value string) string {
 	lines := strings.Split(text, "\n")
 	start := -1
@@ -897,8 +827,6 @@ func policySetKey(text, network, key, value string) string {
 	return strings.Join(lines, "\n")
 }
 
-// networkReconnect is what the watcher does when it finds a zombie: rewriting the
-// address is what makes soju drop the socket and dial again.
 func (s *Server) networkReconnect(w http.ResponseWriter, r *http.Request, sess *Session) {
 	id := r.PathValue("id")
 	back := "/networks/" + id
@@ -917,8 +845,6 @@ func (s *Server) networkReconnect(w http.ResponseWriter, r *http.Request, sess *
 	})
 	s.back(w, r, sess, back, err, "Reconnecting "+name+".")
 }
-
-// ---------------------------------------------------------------- users, admin
 
 func (s *Server) users(w http.ResponseWriter, r *http.Request, sess *Session) {
 	if !sess.IsAdmin() {
@@ -955,9 +881,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request, sess *Sessio
 		"-password", r.PostFormValue("password"),
 	}
 	if r.PostFormValue("admin") != "" {
-		// In `user create` this is a plain boolean flag, which Go's flag package
-		// only accepts glued to its value. Elsewhere soju uses a custom flag type
-		// that takes the value as a separate word.
+
 		args = append(args, "-admin=true")
 	}
 	if v := strings.TrimSpace(r.PostFormValue("nick")); v != "" {
@@ -1005,8 +929,6 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request, sess *Sessio
 	s.back(w, r, sess, "/users", err, "User "+name+" updated.")
 }
 
-// userDelete mirrors soju's own two-step deletion: asking without a token makes
-// soju reply with the token, which the confirmation page then sends back.
 func (s *Server) userDelete(w http.ResponseWriter, r *http.Request, sess *Session) {
 	if !sess.IsAdmin() {
 		http.Error(w, "admin only", http.StatusForbidden)
@@ -1026,7 +948,7 @@ func (s *Server) userDelete(w http.ResponseWriter, r *http.Request, sess *Sessio
 			s.back(w, r, sess, "/users", err, "")
 			return
 		}
-		// The reply reads: To confirm user deletion, send "user delete <name> <token>"
+
 		tok := ""
 		if len(reply) > 0 {
 			f := strings.Fields(strings.Trim(reply[0], `"`))

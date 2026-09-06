@@ -1,35 +1,5 @@
 package main
 
-// The watcher: two jobs soju does not do for itself, run on a timer.
-//
-//   - Zombie connections. soju can hold a network as "connected" while the socket
-//     on the other side is dead: the state says connected, channels are listed,
-//     and nothing sent to the network arrives anywhere. The check is a WHOIS sent
-//     *through* soju on a connection bound to that network. A live upstream
-//     answers 311 or 401; a dead one answers nothing, so the timeout is the
-//     diagnosis. Two failures in a row force a reconnect, because one lagged
-//     server should not be enough.
-//
-//   - Keeping the nick. soju's connect commands only run when a connection
-//     registers, so after a netsplit — where nothing reconnects — a nick lost to a
-//     ghost stays lost. Same escalation as a human would do: NICK, then the
-//     network's services, then identify first; then stop for a while, since by
-//     then the nick may simply belong to somebody else. On SASL-only networks,
-//     where the live session has no NickServ password and a plain NICK is refused
-//     by enforcement, the escalation cannot win: there the policy sets
-//     `recover = reconnect` and the watcher forces a reconnect instead, so soju
-//     re-does SASL on a fresh connection and the server hands the nick back.
-//
-//   - Keeping the op. After a reconnect soju can join a channel under a fallback
-//     nick, and ChanServ's auto-op then misses: when the nick comes back the op is
-//     gone and nobody restores it. For the channels listed in `op-channels` the
-//     watcher asks the network's services (`op-command`, ChanServ OP by default)
-//     whenever it finds itself in the channel without op. Opt-in per network, so it
-//     only ever runs where the account actually holds the rights.
-//
-// Everything here goes through soju: raw lines via `network quote`, no writes to
-// its database and no second connection to the remote network.
-
 import (
 	"bytes"
 	"encoding/json"
@@ -44,9 +14,6 @@ import (
 	"time"
 )
 
-// probeTimeout is how long a live network gets to answer a WHOIS relayed by soju.
-// Silence past this is what "zombie" means here, so it has to be generous enough
-// for a lagged server.
 const probeTimeout = 20 * time.Second
 
 type watchState struct {
@@ -54,11 +21,9 @@ type watchState struct {
 	NickLast   int64            `json:"nick_last"`
 	ProbeFails int              `json:"probe_fails"`
 	LastRepair int64            `json:"last_repair"`
-	OpLast     map[string]int64 `json:"op_last,omitempty"` // ultima richiesta di op per canale, per il rate-limit
+	OpLast     map[string]int64 `json:"op_last,omitempty"`
 }
 
-// passStats is what one pass reports at the end. A healthy pass has nothing else
-// to say, and silence in the journal would not prove it ran.
 type passStats struct {
 	checked, skipped, silent, repaired, nick, opped int
 }
@@ -113,11 +78,8 @@ func NewWatcher(cfg ServerConfig, conf *Config, stateDir string, dry bool) (*Wat
 	return w, nil
 }
 
-// Run does one pass and returns. Repeating is left to a timer — systemd's, or the
-// loop in RunForever.
 func (w *Watcher) Run() error {
-	// The unbound connection is the one that can talk to BouncerServ about every
-	// network at once.
+
 	admin, err := Dial(w.cfg, w.user, w.password)
 	if err != nil {
 		return err
@@ -125,8 +87,7 @@ func (w *Watcher) Run() error {
 	defer admin.Close()
 
 	if w.nick == "" {
-		// Unbound, soju welcomes us with the user's own nick, which is the one the
-		// networks are supposed to show.
+
 		w.nick = admin.Nick
 	}
 	if w.nick == "" {
@@ -176,23 +137,17 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 	name := n.Name()
 	st := w.loadState(name)
 
-	// A connection bound to this network. draft/chathistory matters: without it
-	// soju replays the stored backlog to every client that binds, which for a
-	// watchdog would mean dragging history across the socket on every pass.
 	bound, err := dial(w.cfg, w.user, w.password, dialOpts{
 		network: name,
 		client:  w.client,
 		caps:    []string{"draft/chathistory", "soju.im/no-implicit-names"},
 	})
 	if err != nil {
-		// Failing to bind says nothing about the upstream: soju itself answered.
+
 		return fmt.Errorf("cannot bind: %v", err)
 	}
 	defer bound.Close()
 
-	// non disturbare l'auto-away di soju: questa e' una connessione di controllo effimera, non una
-	// presenza reale. Marcandola subito away, soju non toglie e rimette l'away a monte a ogni pass del
-	// watcher (ogni 20 min) — niente flap away/ritorno verso la rete (ne' righe 305/306 nel client).
 	bound.Send("AWAY :watch")
 
 	answered, inUse := w.probe(bound, w.nick)
@@ -211,15 +166,13 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 	}
 	st.ProbeFails = 0
 
-	// The upstream is alive, so the nick soju registered with is trustworthy.
 	current := bound.Nick
 	if current == w.nick {
 		if st.NickStep > 0 {
 			log.Printf("%s: nick is %s again", name, w.nick)
 			st.NickStep, st.NickLast = 0, 0
 		}
-		// nick a posto: e' il momento buono per rimettere l'op dove serve (mai su un
-		// nick di ripiego, che qui non puo' esserci).
+
 		w.keepOps(bound, name, current, ns, st)
 		w.saveState(name, st)
 		return nil
@@ -230,9 +183,7 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 		held = "somebody holds it"
 	}
 	log.Printf("%s: nick is %q, not %s (%s)", name, current, w.nick, held)
-	// Reti SASL-only (recover = reconnect): la sessione viva e' un Guest senza
-	// password NickServ da presentare e il NICK nudo lo respinge l'enforce; l'unico
-	// modo pulito e' far ridialare soju, che rifa' la SASL e riprende il nick.
+
 	if ns.Get("recover") == "reconnect" {
 		w.reconnectForNick(admin, n, current, st)
 	} else {
@@ -242,11 +193,8 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 	return nil
 }
 
-// probe asks soju to WHOIS a nick on the bound network. answered is false when
-// nothing came back at all, which is the signature of a dead upstream socket;
-// inUse says whether the nick is taken.
 func (w *Watcher) probe(bound *Client, nick string) (answered, inUse bool) {
-	// 311 the nick exists, 401 it does not, 318 ends the reply either way.
+
 	msgs, ok, err := bound.Await(formatMessage("WHOIS", nick),
 		[]string{"311", "401", "318"}, probeTimeout)
 	if err != nil || !ok {
@@ -271,7 +219,7 @@ func (w *Watcher) loadState(network string) *watchState {
 
 func (w *Watcher) saveState(network string, st *watchState) {
 	if w.dry {
-		return // a rehearsal must not leave the escalation half-way through
+		return
 	}
 	b, err := json.Marshal(st)
 	if err != nil {
@@ -282,8 +230,6 @@ func (w *Watcher) saveState(network string, st *watchState) {
 	}
 }
 
-// repair forces soju to drop the dead socket and dial again. Rewriting the
-// address is what makes it reconnect; the value is the one soju already has.
 func (w *Watcher) repair(admin *Client, n *Network, st *watchState) {
 	name, addr := n.Name(), n.Addr()
 	if w.dry {
@@ -310,14 +256,13 @@ func (w *Watcher) repair(admin *Client, n *Network, st *watchState) {
 			"soju answered: %s\n", name, w.nick, addr, name, addr, strings.Join(out, " ")))
 }
 
-// recoverNick escalates the way a person would, one step per pass.
 func (w *Watcher) recoverNick(bound *Client, name, current string, ns *Section, st *watchState) {
 	now := time.Now()
 	if st.NickStep >= w.maxSteps {
 		if now.Sub(time.Unix(st.NickLast, 0)) < w.cooldown {
-			return // stopped for now: the nick may belong to somebody else
+			return
 		}
-		st.NickStep = 0 // the wait is over, start again
+		st.NickStep = 0
 	}
 	st.NickStep++
 	st.NickLast = now.Unix()
@@ -339,8 +284,7 @@ func (w *Watcher) recoverNick(bound *Client, name, current string, ns *Section, 
 			log.Printf("%s: would send: %s", name, redact(line, pass))
 			return
 		}
-		// Nothing to wait for: what services answer is a notice, and the next pass
-		// is what checks whether it worked.
+
 		if err := bound.Send(line); err != nil {
 			log.Printf("%s: cannot send %q: %v", name, redact(line, pass), err)
 		}
@@ -370,17 +314,11 @@ func (w *Watcher) recoverNick(bound *Client, name, current string, ns *Section, 
 	}
 }
 
-// reconnectForNick reclaims the nick on a SASL-only network by forcing soju to
-// dial again: on a fresh connection soju re-does SASL and the server lets it keep
-// the registered nick. Used where the policy sets `recover = reconnect`, because
-// there the live (Guest) session has no NickServ password to present and a plain
-// NICK is refused by nick enforcement. Rate-limited by the same cooldown as the
-// escalation, so a nick that stays lost does not turn into a reconnect storm.
 func (w *Watcher) reconnectForNick(admin *Client, n *Network, current string, st *watchState) {
 	now := time.Now()
 	name := n.Name()
 	if st.NickStep > 0 && now.Sub(time.Unix(st.NickLast, 0)) < w.cooldown {
-		return // reconnect gia' forzato di recente: lascia il tempo di ripartire
+		return
 	}
 	st.NickStep = 1
 	st.NickLast = now.Unix()
@@ -405,13 +343,6 @@ func (w *Watcher) reconnectForNick(admin *Client, n *Network, current string, st
 	log.Printf("%s: reconnect forced to reclaim the nick (soju: %s)", name, strings.Join(out, " "))
 }
 
-// ------------------------------------------------------------------- keeping op
-
-// keepOps, for each channel in `op-channels`, checks whether the current nick is
-// opped and, if not, asks the network's services to op it. Opt-in: a network with
-// no op-channels does nothing. Rate-limited per channel by the same cooldown as
-// the nick escalation, so a channel where the op never comes back does not turn
-// into an hourly stream of requests at ChanServ.
 func (w *Watcher) keepOps(bound *Client, name, current string, ns *Section, st *watchState) {
 	chans := splitList(ns.Get("op-channels"))
 	if len(chans) == 0 {
@@ -425,14 +356,14 @@ func (w *Watcher) keepOps(bound *Client, name, current string, ns *Section, st *
 	for _, ch := range chans {
 		opped, known := w.isOpped(bound, ch, current)
 		if !known {
-			continue // non siamo nel canale (o non risponde): niente da fare
+			continue
 		}
 		if opped {
-			delete(st.OpLast, ch) // di nuovo op: azzera il rate-limit
+			delete(st.OpLast, ch)
 			continue
 		}
 		if last, ok := st.OpLast[ch]; ok && now.Sub(time.Unix(last, 0)) < w.cooldown {
-			continue // richiesta gia' fatta di recente: non insistere
+			continue
 		}
 		line := strings.NewReplacer("{chan}", ch, "{nick}", current).Replace(tmpl)
 		if w.dry {
@@ -452,10 +383,6 @@ func (w *Watcher) keepOps(bound *Client, name, current string, ns *Section, st *
 	}
 }
 
-// isOpped reads NAMES for a channel through the bound connection and reports
-// whether `nick` is present with op (@) or higher (&/~). known is false when the
-// nick is not in the channel at all — not joined, or under a different name — so
-// the caller leaves it alone rather than firing a request that cannot land.
 func (w *Watcher) isOpped(bound *Client, channel, nick string) (opped, known bool) {
 	msgs, ok, err := bound.Await(formatMessage("NAMES", channel),
 		[]string{"366", "403", "442", "401"}, probeTimeout)
@@ -464,7 +391,7 @@ func (w *Watcher) isOpped(bound *Client, channel, nick string) (opped, known boo
 	}
 	for _, m := range msgs {
 		if m.Command != "353" || !strings.EqualFold(m.Param(2), channel) {
-			continue // solo i NAMES del canale chiesto (difesa da 353 spuri)
+			continue
 		}
 		for _, tok := range strings.Fields(m.Param(len(m.Params) - 1)) {
 			i := 0
@@ -480,7 +407,6 @@ func (w *Watcher) isOpped(bound *Client, channel, nick string) (opped, known boo
 	return false, false
 }
 
-// splitList spezza un elenco separato da virgole/spazi (i canali di op-channels).
 func splitList(s string) []string {
 	var out []string
 	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
@@ -491,9 +417,6 @@ func splitList(s string) []string {
 	return out
 }
 
-// ---------------------------------------------------------------- manual check
-
-// ProbeResult is what one network answered to a check asked for by hand.
 type ProbeResult struct {
 	Network  string
 	ID       string
@@ -503,9 +426,6 @@ type ProbeResult struct {
 	Note     string
 }
 
-// ProbeNetworks runs the zombie check once, for the web interface, using the
-// credentials of whoever is signed in. It reports and changes nothing: repairing
-// stays a button of its own.
 func ProbeNetworks(cfg ServerConfig, user, password, client string, nets []*Network) []ProbeResult {
 	if client == "" {
 		client = "watch"
@@ -529,7 +449,7 @@ func ProbeNetworks(cfg ServerConfig, user, password, client string, nets []*Netw
 			continue
 		}
 		r.Nick = bound.Nick
-		// WHOIS of the nick soju itself registered with: alive, it must come back.
+
 		_, ok, err := bound.Await(formatMessage("WHOIS", bound.Nick),
 			[]string{"311", "401", "318"}, probeTimeout)
 		bound.Close()
@@ -542,7 +462,6 @@ func ProbeNetworks(cfg ServerConfig, user, password, client string, nets []*Netw
 	return out
 }
 
-// redact keeps a password out of the log.
 func redact(line, pass string) string {
 	if pass == "" {
 		return line
@@ -550,8 +469,6 @@ func redact(line, pass string) string {
 	return strings.ReplaceAll(line, pass, "****")
 }
 
-// alert hands the message to the configured command on stdin — `msmtp you@example
-// .org`, `mail -s …`, anything. Without one, the log is the only channel.
 func (w *Watcher) alert(subject, body string) {
 	log.Printf("alert: %s", subject)
 	if w.alertCmd == "" {
@@ -566,23 +483,18 @@ func (w *Watcher) alert(subject, body string) {
 	}
 }
 
-// logFile is the watcher's own log, kept beside its state so a web interface with
-// no access to the journal can still show it. It is trimmed to keep the tail,
-// since nothing rotates it.
 const (
 	logName     = "watch.log"
 	logMaxBytes = 128 << 10
 )
 
-// OpenLog sends the log to stderr — the journal, under systemd — and to a file in
-// the state directory.
 func (w *Watcher) OpenLog() {
 	path := filepath.Join(w.stateDir, logName)
 	if st, err := os.Stat(path); err == nil && st.Size() > logMaxBytes {
 		if b, err := os.ReadFile(path); err == nil {
 			keep := b[len(b)-logMaxBytes/2:]
 			if i := bytes.IndexByte(keep, '\n'); i >= 0 {
-				keep = keep[i+1:] // start on a whole line
+				keep = keep[i+1:]
 			}
 			os.WriteFile(path, keep, 0o600)
 		}
@@ -595,7 +507,6 @@ func (w *Watcher) OpenLog() {
 	log.SetOutput(io.MultiWriter(os.Stderr, f))
 }
 
-// ReadLog returns the tail of the watcher's log, newest lines last.
 func ReadLog(stateDir string, maxLines int) ([]string, error) {
 	b, err := os.ReadFile(filepath.Join(stateDir, logName))
 	if err != nil {
@@ -608,7 +519,6 @@ func ReadLog(stateDir string, maxLines int) ([]string, error) {
 	return lines, nil
 }
 
-// NetworkState is one network's watcher state, for display.
 type NetworkState struct {
 	Network string
 	watchState
@@ -621,7 +531,6 @@ func (s NetworkState) LastRepairTime() string {
 	return time.Unix(s.LastRepair, 0).Format("2006-01-02 15:04")
 }
 
-// ReadStates loads whatever state the watcher has left behind.
 func ReadStates(stateDir string) ([]NetworkState, error) {
 	entries, err := os.ReadDir(stateDir)
 	if err != nil {

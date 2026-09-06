@@ -1,12 +1,5 @@
 package main
 
-// Web sessions, each owning one IRC connection to soju.
-//
-// The password is kept in memory for the lifetime of the session and never
-// written anywhere: it is needed to redial when soju restarts, which otherwise
-// would log everybody out. Nothing is persisted, so restarting this program ends
-// every session.
-
 import (
 	"errors"
 	"net/http"
@@ -28,7 +21,6 @@ type Session struct {
 	flash    *Flash
 }
 
-// Flash carries one message across the redirect that follows a POST.
 type Flash struct {
 	Text string
 	Bad  bool
@@ -54,8 +46,6 @@ func (s *Session) User() string {
 	return s.user
 }
 
-// Credentials are needed to open the extra connections a manual watcher check
-// binds to each network. They never leave the process.
 func (s *Session) Credentials() (string, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,9 +58,6 @@ func (s *Session) IsAdmin() bool {
 	return s.cl != nil && s.cl.IsAdmin
 }
 
-// Do runs an operation on the session's connection. If the connection turns out
-// to be gone — soju restarted, the container was updated — it redials once and
-// retries, so the page the user asked for still renders.
 func (s *Session) Do(cfg ServerConfig, fn func(*Client) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -91,7 +78,6 @@ func (s *Session) Do(cfg ServerConfig, fn func(*Client) error) error {
 	return err
 }
 
-// redial replaces the connection. The caller holds the lock.
 func (s *Session) redial(cfg ServerConfig) error {
 	if s.cl != nil {
 		s.cl.Close()
@@ -126,7 +112,6 @@ func NewSessionStore(idle time.Duration) *SessionStore {
 	return st
 }
 
-// New authenticates against soju and, on success, opens a session.
 func (st *SessionStore) New(cfg ServerConfig, user, password string) (*Session, error) {
 	cl, err := Dial(cfg, user, password)
 	if err != nil {

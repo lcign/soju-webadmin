@@ -1,21 +1,5 @@
 package main
 
-// One IRC connection to soju per logged-in web session, plus the soju-specific
-// operations built on top of it.
-//
-// Two different interfaces are used, deliberately:
-//
-//   - networks go through the soju.im/bouncer-networks extension, which is a
-//     structured protocol (attribute lists, numeric ids, error replies);
-//   - everything else goes through BouncerServ, whose replies are lines of prose
-//     meant for humans. Those are shown as they arrive wherever possible, and
-//     parsed only where the UI needs the fields.
-//
-// soju does not implement labeled-response, so replies cannot be tagged and
-// matched. Instead a request holds a lock, sends its command, and then sends a
-// PING carrying a nonce: IRC is ordered per connection, so every line belonging
-// to the command has arrived by the time the matching PONG comes back.
-
 import (
 	"bufio"
 	"crypto/rand"
@@ -38,11 +22,10 @@ const (
 
 var errClosed = errors.New("connection to soju closed")
 
-// ServerConfig describes how to reach soju. It is set once, from the flags.
 type ServerConfig struct {
-	Addr     string // host:port
+	Addr     string
 	TLS      bool
-	Insecure bool // accept any certificate (self-signed soju setups)
+	Insecure bool
 }
 
 type Client struct {
@@ -51,41 +34,31 @@ type Client struct {
 	conn net.Conn
 	in   chan *Message
 
-	wmu sync.Mutex // serializes writes
-	rmu sync.Mutex // serializes requests, so replies cannot interleave
+	wmu sync.Mutex
+	rmu sync.Mutex
 
 	Username string
 	IsAdmin  bool
-	Nick     string // the nick soju welcomed us with
+	Nick     string
 }
 
-// dialOpts covers the two kinds of connection this program opens: the plain one
-// the web interface uses, and the ones the watcher binds to a single network.
 type dialOpts struct {
-	// network binds the connection to one network. soju only accepts BOUNCER BIND
-	// before registration completes, so the network travels in the SASL username
-	// instead, as "user/network".
 	network string
-	// client names this connection for soju, keeping its state separate from the
-	// user's real clients.
+
 	client string
-	// caps are requested on top of the ones always needed.
+
 	caps []string
 }
 
 func randToken(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		// crypto/rand does not fail in practice; a panic here is better than a
-		// silently predictable token.
+
 		panic(err)
 	}
 	return hex.EncodeToString(b)
 }
 
-// Dial connects to soju and authenticates with SASL PLAIN. Success means the
-// credentials are soju's own, which is what this program uses as its login: no
-// separate user store, no password of its own.
 func Dial(cfg ServerConfig, username, password string) (*Client, error) {
 	return dial(cfg, username, password, dialOpts{})
 }
@@ -115,8 +88,7 @@ func dial(cfg ServerConfig, username, password string, o dialOpts) (*Client, err
 	go c.readLoop()
 
 	if o.network == "" {
-		// Admin commands are hidden from ordinary users, so asking is the only way
-		// to know which UI to show.
+
 		if _, err := c.Serv("user", "status"); err == nil {
 			c.IsAdmin = true
 		}
@@ -124,7 +96,6 @@ func dial(cfg ServerConfig, username, password string, o dialOpts) (*Client, err
 	return c, nil
 }
 
-// saslUsername composes what soju parses back into user, client and network.
 func saslUsername(user string, o dialOpts) string {
 	s := user
 	if o.client != "" {
@@ -144,8 +115,6 @@ func (c *Client) write(line string) error {
 	return err
 }
 
-// handshake registers and authenticates, reading the socket directly: the read
-// loop only starts once the connection is usable.
 func (c *Client) handshake(username, password string, o dialOpts) error {
 	br := bufio.NewReader(c.conn)
 	c.conn.SetDeadline(time.Now().Add(handshakeLimit))
@@ -159,7 +128,7 @@ func (c *Client) handshake(username, password string, o dialOpts) error {
 			}
 			m, err := parseMessage(line)
 			if err != nil {
-				continue // ignore anything unparseable rather than failing login
+				continue
 			}
 			if m.Command == "PING" {
 				if err := c.write(formatMessage("PONG", m.Param(0))); err != nil {
@@ -181,8 +150,6 @@ func (c *Client) handshake(username, password string, o dialOpts) error {
 		}
 	}
 
-	// CAP LS may be split over several lines; "*" as the parameter before the
-	// list means more are coming.
 	sasl := false
 	for {
 		m, err := read()
@@ -248,7 +215,7 @@ func (c *Client) handshake(username, password string, o dialOpts) error {
 			return err
 		}
 		switch m.Command {
-		case "903": // SASL successful
+		case "903":
 			if err := c.write("CAP END"); err != nil {
 				return err
 			}
@@ -265,10 +232,9 @@ registered:
 			return err
 		}
 		if m.Command == "001" {
-			// Bound to a network, this is the nick as the network sees it — which is
-			// what the watcher compares against the nick it wants.
+
 			c.Nick = m.Param(0)
-			// The MOTD that follows is left for the read loop to discard.
+
 			return nil
 		}
 		if strings.HasPrefix(m.Command, "4") || strings.HasPrefix(m.Command, "5") {
@@ -298,8 +264,7 @@ func (c *Client) readLoop() {
 		select {
 		case c.in <- m:
 		default:
-			// Nobody is collecting (or the buffer is full): unsolicited traffic is
-			// not what this program is for, so it is dropped.
+
 		}
 	}
 }
@@ -308,14 +273,10 @@ func (c *Client) Close() {
 	c.conn.Close()
 }
 
-// Request sends lines and returns every message received before the PONG that
-// closes the exchange.
 func (c *Client) Request(lines ...string) ([]*Message, error) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
 
-	// Discard whatever arrived between requests, so the reply cannot be polluted
-	// by, say, a network state change.
 	for {
 		select {
 		case _, ok := <-c.in:
@@ -356,18 +317,10 @@ func (c *Client) Request(lines ...string) ([]*Message, error) {
 	}
 }
 
-// Send writes a line and waits for nothing.
 func (c *Client) Send(line string) error {
 	return c.write(line)
 }
 
-// Await sends a line and waits for one of the given replies, discarding anything
-// else, until they arrive or the timeout passes.
-//
-// This exists because the PING trick Request relies on does not hold for anything
-// soju relays to a network: soju answers the PING itself, immediately, while the
-// network's reply is still in flight. Use Request for BouncerServ and the BOUNCER
-// extension, and Await for whatever travels to an upstream.
 func (c *Client) Await(line string, want []string, timeout time.Duration) ([]*Message, bool, error) {
 	c.rmu.Lock()
 	defer c.rmu.Unlock()
@@ -411,9 +364,6 @@ func (c *Client) Await(line string, want []string, timeout time.Duration) ([]*Me
 	}
 }
 
-// servQuote renders one BouncerServ argument. soju splits that line on spaces
-// but honours double quotes, which is how arguments holding spaces — a realname,
-// a raw line for `network quote` — survive the trip.
 func servQuote(arg string) string {
 	if arg != "" && !strings.ContainsAny(arg, " \t\"\\") {
 		return arg
@@ -421,7 +371,6 @@ func servQuote(arg string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(arg) + `"`
 }
 
-// Serv runs a BouncerServ command and returns its reply, one line per element.
 func (c *Client) Serv(args ...string) ([]string, error) {
 	quoted := make([]string, len(args))
 	for i, a := range args {
@@ -442,7 +391,7 @@ func (c *Client) Serv(args ...string) ([]string, error) {
 		}
 		lines = append(lines, m.Param(len(m.Params)-1))
 	}
-	// BouncerServ reports failure as a single line opening with "error:".
+
 	if len(lines) == 1 && strings.HasPrefix(strings.ToLower(lines[0]), "error:") {
 		return nil, errors.New(strings.TrimSpace(lines[0][len("error:"):]))
 	}
@@ -452,10 +401,6 @@ func (c *Client) Serv(args ...string) ([]string, error) {
 	return lines, nil
 }
 
-// ---------------------------------------------------------------- networks
-
-// Network holds the attributes soju sent, untouched, so an attribute this
-// program does not know about is still carried across an edit.
 type Network struct {
 	ID    string
 	Attrs map[string]string
@@ -463,8 +408,6 @@ type Network struct {
 
 func (n *Network) Attr(k string) string { return n.Attrs[k] }
 
-// Name is what BouncerServ calls this network. soju falls back to the address
-// when a network was created without a name.
 func (n *Network) Name() string {
 	if v := n.Attrs["name"]; v != "" {
 		return v
@@ -481,7 +424,6 @@ func (n *Network) State() string {
 
 func (n *Network) Error() string { return n.Attrs["error"] }
 
-// Addr rebuilds the ircs://host:port form that BouncerServ expects.
 func (n *Network) Addr() string {
 	scheme := "ircs"
 	if n.Attrs["tls"] == "0" {
@@ -514,7 +456,7 @@ func (c *Client) ListNetworks() ([]*Network, error) {
 			continue
 		}
 		attrs := m.Param(2)
-		if attrs == "*" { // "*" marks a removal in the notify stream
+		if attrs == "*" {
 			continue
 		}
 		nets = append(nets, &Network{ID: m.Param(1), Attrs: parseTags(attrs)})
@@ -548,8 +490,6 @@ func (c *Client) AddNetwork(attrs map[string]string) (string, error) {
 	return "", failError(msgs, "the new network")
 }
 
-// ChangeNetwork updates attributes. An empty value clears an attribute, which
-// is how the extension expresses "unset".
 func (c *Client) ChangeNetwork(id string, attrs map[string]string) error {
 	msgs, err := c.Request("BOUNCER CHANGENETWORK " + id + " " + formatTags(attrs))
 	if err != nil {
@@ -576,20 +516,15 @@ func (c *Client) DeleteNetwork(id string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------- channels
-
 type Channel struct {
 	Name    string
 	Network string
-	Status  string // as printed by soju: "joined", "joined, detached", …
+	Status  string
 }
 
 func (ch *Channel) Detached() bool { return strings.Contains(ch.Status, "detached") }
 func (ch *Channel) Joined() bool   { return strings.Contains(ch.Status, "joined") }
 
-// Channels lists saved channels. With an empty network it covers every network
-// and soju appends "/network" to each name — that suffix is how the dashboard
-// tells them apart. Asked about one network, soju leaves the name bare.
 func (c *Client) Channels(network string) ([]*Channel, error) {
 	args := []string{"channel", "status"}
 	if network != "" {
@@ -618,11 +553,9 @@ func (c *Client) Channels(network string) ([]*Channel, error) {
 	return out, nil
 }
 
-// ---------------------------------------------------------------- users
-
 type User struct {
 	Name string
-	Line string // the whole line as soju printed it
+	Line string
 }
 
 func (c *Client) Users() ([]*User, error) {

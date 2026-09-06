@@ -121,6 +121,10 @@
   "watch.policy": "Policy",
   "watch.policy_hint": "Which networks to skip, and what to send their services to get the nick back. <code>{nick}</code> and <code>{pass}</code> are filled in. The watcher reads this on its next pass. ⚠️ Credentials are <strong>not</strong> here: they stay in the watcher's own configuration, which this page cannot read or write.",
   "watch.policy_save": "Save policy",
+  "watch.op_title": "Keeping the op",
+  "watch.op_hint": "Channels where the watcher asks the network's services to op you again if it finds itself in them without op. One or more per network, separated by spaces or commas — leave a network blank to switch it off. Only where your account holds the rights. The command is <code>op-command</code> in the policy below (ChanServ by default).",
+  "watch.op_channels": "Channels",
+  "watch.op_save": "Save op channels",
   "watch.log": "Log",
 
   "users.user": "User",

@@ -98,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /watcher", s.auth(s.watcher))
 	mux.HandleFunc("POST /watcher/check", s.auth(s.watcherCheck))
 	mux.HandleFunc("POST /watcher/policy", s.auth(s.watcherPolicy))
+	mux.HandleFunc("POST /watcher/opchannels", s.auth(s.watcherOpChannels))
 
 	mux.HandleFunc("GET /users", s.auth(s.users))
 	mux.HandleFunc("POST /users/new", s.auth(s.userCreate))
@@ -636,6 +637,14 @@ type watcherPage struct {
 	Editable bool
 	OwnOnly  bool // not an admin: only the manual check is available
 	Probes   []ProbeResult
+	OpRows   []OpRow // op-channels per rete, per la sezione dedicata
+}
+
+// OpRow e' una riga della sezione "op nei canali": una rete e i canali (dal
+// policy.conf) in cui il watcher deve tenersi oppato.
+type OpRow struct {
+	Network  string
+	Channels string
 }
 
 // watcherData reads what the watcher left behind. The state, the log and the
@@ -665,12 +674,40 @@ func (s *Server) watcherData(sess *Session) *watcherPage {
 	if s.policyPath != "" {
 		if b, err := os.ReadFile(s.policyPath); err == nil {
 			d.Policy = string(b)
+			d.OpRows = s.opRows(sess)
 		} else {
 			d.Err = "cannot read the policy file: " + err.Error()
 			d.Editable = false
 		}
 	}
 	return d
+}
+
+// opRows elenca le reti (da soju) con i canali di op attuali (dal policy.conf),
+// per la sezione strutturata. Se soju non risponde torna vuota: la pagina resta
+// utilizzabile e si puo' sempre usare il textarea grezzo.
+func (s *Server) opRows(sess *Session) []OpRow {
+	pol, err := LoadPolicy(s.policyPath)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	sess.Do(s.cfg, func(c *Client) error {
+		nets, e := c.ListNetworks()
+		if e != nil {
+			return e
+		}
+		for _, n := range nets {
+			names = append(names, n.Name())
+		}
+		return nil
+	})
+	sort.Strings(names)
+	rows := make([]OpRow, 0, len(names))
+	for _, name := range names {
+		rows = append(rows, OpRow{Network: name, Channels: pol.Section("network " + name).Get("op-channels")})
+	}
+	return rows
 }
 
 func (s *Server) watcher(w http.ResponseWriter, r *http.Request, sess *Session) {
@@ -743,6 +780,121 @@ func (s *Server) watcherPolicy(w http.ResponseWriter, r *http.Request, sess *Ses
 		return
 	}
 	s.back(w, r, sess, "/watcher", nil, "Policy saved; the watcher picks it up on its next pass.")
+}
+
+// watcherOpChannels saves the op-channels list per network from the structured
+// section, touching only the op-channels line of each network and leaving the
+// rest of the policy file (recover, skip, op-command, comments) as it was.
+func (s *Server) watcherOpChannels(w http.ResponseWriter, r *http.Request, sess *Session) {
+	if !sess.IsAdmin() {
+		http.Error(w, "admin only", http.StatusForbidden)
+		return
+	}
+	if s.policyPath == "" {
+		http.Error(w, "no policy file configured", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	b, err := os.ReadFile(s.policyPath)
+	if err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	text := string(b)
+	nets, chans := r.PostForm["net"], r.PostForm["channels"]
+	for i, name := range nets {
+		val := ""
+		if i < len(chans) {
+			val = strings.Join(splitList(chans[i]), " ") // normalizza spazi/virgole
+		}
+		text = policySetKey(text, name, "op-channels", val)
+	}
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+
+	// stessa rete di sicurezza del salvataggio grezzo: deve restare una policy valida
+	tmp, err := os.CreateTemp(filepath.Dir(s.policyPath), ".policy-*")
+	if err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(text); err != nil {
+		tmp.Close()
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	tmp.Close()
+	if _, err := LoadPolicy(tmp.Name()); err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+
+	if err := os.WriteFile(s.policyPath, []byte(text), 0o644); err != nil {
+		s.back(w, r, sess, "/watcher", err, "")
+		return
+	}
+	s.back(w, r, sess, "/watcher", nil, "Op channels saved; the watcher picks it up on its next pass.")
+}
+
+// policySetKey sets (or removes, when value is empty) one key inside the
+// [network <network>] section of a policy file's text, leaving everything else
+// untouched. It creates the section when it is missing and the value is not empty.
+func policySetKey(text, network, key, value string) string {
+	lines := strings.Split(text, "\n")
+	start := -1
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if !strings.HasPrefix(strings.ToLower(t), "[network ") || !strings.HasSuffix(t, "]") {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(t[len("[network "):len(t)-1]), network) {
+			start = i
+			break
+		}
+	}
+	if start == -1 {
+		if value == "" {
+			return text
+		}
+		out := strings.TrimRight(text, "\n")
+		if out != "" {
+			out += "\n\n"
+		}
+		return out + "[network " + network + "]\n" + key + " = " + value + "\n"
+	}
+	end := len(lines)
+	for j := start + 1; j < len(lines); j++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[j]), "[") {
+			end = j
+			break
+		}
+	}
+	kidx := -1
+	for j := start + 1; j < end; j++ {
+		t := strings.TrimSpace(lines[j])
+		if strings.HasPrefix(t, key) && strings.HasPrefix(strings.TrimSpace(t[len(key):]), "=") {
+			kidx = j
+			break
+		}
+	}
+	if value == "" {
+		if kidx >= 0 {
+			lines = append(lines[:kidx], lines[kidx+1:]...)
+		}
+		return strings.Join(lines, "\n")
+	}
+	newline := key + " = " + value
+	if kidx >= 0 {
+		lines[kidx] = newline
+	} else {
+		lines = append(lines[:start+1], append([]string{newline}, lines[start+1:]...)...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // networkReconnect is what the watcher does when it finds a zombie: rewriting the

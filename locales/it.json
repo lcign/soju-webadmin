@@ -121,6 +121,10 @@
   "watch.policy": "Policy",
   "watch.policy_hint": "Quali reti saltare, e cosa mandare ai loro servizi per riprendersi il nick. <code>{nick}</code> e <code>{pass}</code> vengono sostituiti. Il watcher la rilegge al giro successivo. ⚠️ Le credenziali <strong>non</strong> stanno qui: restano nella configurazione del watcher, che questa pagina non può né leggere né scrivere.",
   "watch.policy_save": "Salva la policy",
+  "watch.op_title": "Tenere l'op",
+  "watch.op_hint": "Canali in cui il watcher richiede l'op ai servizi della rete se si ritrova dentro senza. Uno o più per rete, separati da spazi o virgole — lascia vuoto per disattivare una rete. Solo dove il tuo account ha i diritti. Il comando è <code>op-command</code> nella policy qui sotto (ChanServ di default).",
+  "watch.op_channels": "Canali",
+  "watch.op_save": "Salva i canali",
   "watch.log": "Log",
 
   "users.user": "Utente",

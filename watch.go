@@ -20,6 +20,13 @@ package main
 //     `recover = reconnect` and the watcher forces a reconnect instead, so soju
 //     re-does SASL on a fresh connection and the server hands the nick back.
 //
+//   - Keeping the op. After a reconnect soju can join a channel under a fallback
+//     nick, and ChanServ's auto-op then misses: when the nick comes back the op is
+//     gone and nobody restores it. For the channels listed in `op-channels` the
+//     watcher asks the network's services (`op-command`, ChanServ OP by default)
+//     whenever it finds itself in the channel without op. Opt-in per network, so it
+//     only ever runs where the account actually holds the rights.
+//
 // Everything here goes through soju: raw lines via `network quote`, no writes to
 // its database and no second connection to the remote network.
 
@@ -43,16 +50,17 @@ import (
 const probeTimeout = 20 * time.Second
 
 type watchState struct {
-	NickStep   int   `json:"nick_step"`
-	NickLast   int64 `json:"nick_last"`
-	ProbeFails int   `json:"probe_fails"`
-	LastRepair int64 `json:"last_repair"`
+	NickStep   int              `json:"nick_step"`
+	NickLast   int64            `json:"nick_last"`
+	ProbeFails int              `json:"probe_fails"`
+	LastRepair int64            `json:"last_repair"`
+	OpLast     map[string]int64 `json:"op_last,omitempty"` // ultima richiesta di op per canale, per il rate-limit
 }
 
 // passStats is what one pass reports at the end. A healthy pass has nothing else
 // to say, and silence in the journal would not prove it ran.
 type passStats struct {
-	checked, skipped, silent, repaired, nick int
+	checked, skipped, silent, repaired, nick, opped int
 }
 
 type Watcher struct {
@@ -150,8 +158,8 @@ func (w *Watcher) Run() error {
 	}
 
 	s := w.stats
-	log.Printf("%d networks checked, %d skipped: %d silent, %d reconnected, %d nick attempts",
-		s.checked, s.skipped, s.silent, s.repaired, s.nick)
+	log.Printf("%d networks checked, %d skipped: %d silent, %d reconnected, %d nick attempts, %d op requests",
+		s.checked, s.skipped, s.silent, s.repaired, s.nick, s.opped)
 	return nil
 }
 
@@ -182,6 +190,9 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 	}
 	defer bound.Close()
 
+	// non disturbare l'auto-away di soju: questa e' una connessione di controllo effimera, non una
+	// presenza reale. Marcandola subito away, soju non toglie e rimette l'away a monte a ogni pass del
+	// watcher (ogni 20 min) — niente flap away/ritorno verso la rete (ne' righe 305/306 nel client).
 	bound.Send("AWAY :watch")
 
 	answered, inUse := w.probe(bound, w.nick)
@@ -207,6 +218,9 @@ func (w *Watcher) checkNetwork(admin *Client, n *Network, ns *Section) error {
 			log.Printf("%s: nick is %s again", name, w.nick)
 			st.NickStep, st.NickLast = 0, 0
 		}
+		// nick a posto: e' il momento buono per rimettere l'op dove serve (mai su un
+		// nick di ripiego, che qui non puo' esserci).
+		w.keepOps(bound, name, current, ns, st)
 		w.saveState(name, st)
 		return nil
 	}
@@ -389,6 +403,92 @@ func (w *Watcher) reconnectForNick(admin *Client, n *Network, current string, st
 	}
 	w.stats.repaired++
 	log.Printf("%s: reconnect forced to reclaim the nick (soju: %s)", name, strings.Join(out, " "))
+}
+
+// ------------------------------------------------------------------- keeping op
+
+// keepOps, for each channel in `op-channels`, checks whether the current nick is
+// opped and, if not, asks the network's services to op it. Opt-in: a network with
+// no op-channels does nothing. Rate-limited per channel by the same cooldown as
+// the nick escalation, so a channel where the op never comes back does not turn
+// into an hourly stream of requests at ChanServ.
+func (w *Watcher) keepOps(bound *Client, name, current string, ns *Section, st *watchState) {
+	chans := splitList(ns.Get("op-channels"))
+	if len(chans) == 0 {
+		return
+	}
+	tmpl := ns.Get("op-command")
+	if tmpl == "" {
+		tmpl = "PRIVMSG ChanServ :OP {chan}"
+	}
+	now := time.Now()
+	for _, ch := range chans {
+		opped, known := w.isOpped(bound, ch, current)
+		if !known {
+			continue // non siamo nel canale (o non risponde): niente da fare
+		}
+		if opped {
+			delete(st.OpLast, ch) // di nuovo op: azzera il rate-limit
+			continue
+		}
+		if last, ok := st.OpLast[ch]; ok && now.Sub(time.Unix(last, 0)) < w.cooldown {
+			continue // richiesta gia' fatta di recente: non insistere
+		}
+		line := strings.NewReplacer("{chan}", ch, "{nick}", current).Replace(tmpl)
+		if w.dry {
+			log.Printf("%s: would send: %s", name, line)
+		} else {
+			log.Printf("%s: not opped in %s, asking services", name, ch)
+			if err := bound.Send(line); err != nil {
+				log.Printf("%s: cannot ask op for %s: %v", name, ch, err)
+				continue
+			}
+		}
+		if st.OpLast == nil {
+			st.OpLast = map[string]int64{}
+		}
+		st.OpLast[ch] = now.Unix()
+		w.stats.opped++
+	}
+}
+
+// isOpped reads NAMES for a channel through the bound connection and reports
+// whether `nick` is present with op (@) or higher (&/~). known is false when the
+// nick is not in the channel at all — not joined, or under a different name — so
+// the caller leaves it alone rather than firing a request that cannot land.
+func (w *Watcher) isOpped(bound *Client, channel, nick string) (opped, known bool) {
+	msgs, ok, err := bound.Await(formatMessage("NAMES", channel),
+		[]string{"366", "403", "442", "401"}, probeTimeout)
+	if err != nil || !ok {
+		return false, false
+	}
+	for _, m := range msgs {
+		if m.Command != "353" || !strings.EqualFold(m.Param(2), channel) {
+			continue // solo i NAMES del canale chiesto (difesa da 353 spuri)
+		}
+		for _, tok := range strings.Fields(m.Param(len(m.Params) - 1)) {
+			i := 0
+			for i < len(tok) && strings.IndexByte("~&@%+", tok[i]) >= 0 {
+				i++
+			}
+			if !strings.EqualFold(tok[i:], nick) {
+				continue
+			}
+			return strings.ContainsAny(tok[:i], "~&@"), true
+		}
+	}
+	return false, false
+}
+
+// splitList spezza un elenco separato da virgole/spazi (i canali di op-channels).
+func splitList(s string) []string {
+	var out []string
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // ---------------------------------------------------------------- manual check

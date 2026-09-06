@@ -60,7 +60,11 @@ systemctl enable --now soju-webadmin-watch.timer
 
 ⚠️ It signs in as a soju user, so its configuration holds that password and is refused unless it is
 mode 0600. The **policy** — which networks to skip, what to send their services — belongs in a
-separate file (`-watch-policy`) the interface may edit; credentials never go there.
+separate file (`-watch-policy`) the interface may edit; credentials never go there. Per network it
+also takes `op-channels` (a comma/space list of your own channels) and an optional `op-command`
+(default `PRIVMSG ChanServ :OP {chan}`, placeholders `{chan}`/`{nick}`): where set, the watcher asks
+the services to op you again if it finds itself in the channel without op — opt-in, so it runs only
+where the account holds the rights.
 
 The *Watcher* page shows its state and log, and a **Check now** that runs the same probe on your own
 connection, changing nothing. Admins only.

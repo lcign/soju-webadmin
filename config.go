@@ -73,6 +73,7 @@ func (c *Config) NetworkSection(name string) *Section {
 var policyKeys = map[string]bool{
 	"interval": true, "nick-cooldown": true, "nick": true, "client": true,
 	"recover": true, "identify": true, "skip": true,
+	"op-channels": true, "op-command": true,
 }
 
 // MergePolicy layers a policy file over this configuration, ignoring keys a

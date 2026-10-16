@@ -29,7 +29,7 @@
 				<form method="post" action="{{$p}}/networks/{{.ID}}/reconnect">
 					<input type="hidden" name="csrf" value="{{$csrf}}">
 					<input type="hidden" name="from" value="watcher">
-					<button class="danger" data-confirm="{{$.T "danger.reconnect_confirm" "network" .Network}}">{{$.T "danger.reconnect"}}</button>
+					<button data-confirm="{{$.T "net.reconnect_confirm" "network" .Network}}">{{$.T "net.reconnect"}}</button>
 				</form>
 				{{end}}
 		</tr>

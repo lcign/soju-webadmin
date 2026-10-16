@@ -93,12 +93,15 @@
   "quote.title": "Riga grezza",
   "quote.hint": "Inviata alla rete così com'è, come il <code>network quote</code> di BouncerServ.",
 
+  "net.reconnect_title": "Connessione",
+  "net.reconnect": "Riconnetti",
+  "net.reconnect_hint": "Stacca e ri-collega la rete. Non cancella nulla: solo una breve caduta.",
+  "net.reconnect_confirm": "Forzare la riconnessione di {network}?",
+
   "danger.title": "Operazioni distruttive",
   "danger.disable": "Disattiva",
   "danger.disable_confirm": "Disattivare {network}? soju si scollega e smette di riconnettersi.",
   "danger.enable": "Attiva",
-  "danger.reconnect": "Riconnetti",
-  "danger.reconnect_confirm": "Forzare la riconnessione di {network}?",
   "danger.delete": "Elimina rete",
   "danger.delete_confirm": "Eliminare {network}? Se ne vanno i canali salvati e tutto lo storico dei messaggi. Non si torna indietro.",
 

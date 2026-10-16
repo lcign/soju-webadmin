@@ -93,12 +93,15 @@
   "quote.title": "Raw line",
   "quote.hint": "Sent to the network as it stands, the same as BouncerServ's <code>network quote</code>.",
 
+  "net.reconnect_title": "Connection",
+  "net.reconnect": "Reconnect",
+  "net.reconnect_hint": "Drops and re-dials the network. Deletes nothing — just a short outage.",
+  "net.reconnect_confirm": "Force {network} to reconnect?",
+
   "danger.title": "Danger zone",
   "danger.disable": "Disable",
   "danger.disable_confirm": "Disable {network}? soju disconnects and stops reconnecting.",
   "danger.enable": "Enable",
-  "danger.reconnect": "Reconnect",
-  "danger.reconnect_confirm": "Force {network} to reconnect?",
   "danger.delete": "Delete network",
   "danger.delete_confirm": "Delete {network}? Its saved channels and its whole stored history go with it. This cannot be undone.",
 

@@ -134,6 +134,15 @@
 	</form>
 </section>
 
+<section class="card">
+	<h2>{{.T "net.reconnect_title"}}</h2>
+	<form method="post" action="{{$p}}/networks/{{$net.ID}}/reconnect" class="row">
+		<input type="hidden" name="csrf" value="{{$csrf}}">
+		<button data-confirm="{{.T "net.reconnect_confirm" "network" $net.Name}}">{{.T "net.reconnect"}}</button>
+		<small class="muted">{{.T "net.reconnect_hint"}}</small>
+	</form>
+</section>
+
 <section class="card danger-zone">
 	<h2>{{.T "danger.title"}}</h2>
 	<div class="row">
@@ -146,10 +155,6 @@
 				<input type="hidden" name="enabled" value="1">
 				<button class="primary">{{.T "danger.enable"}}</button>
 			{{end}}
-		</form>
-		<form method="post" action="{{$p}}/networks/{{$net.ID}}/reconnect">
-			<input type="hidden" name="csrf" value="{{$csrf}}">
-			<button data-confirm="{{.T "danger.reconnect_confirm" "network" $net.Name}}">{{.T "danger.reconnect"}}</button>
 		</form>
 		<form method="post" action="{{$p}}/networks/{{$net.ID}}/delete">
 			<input type="hidden" name="csrf" value="{{$csrf}}">

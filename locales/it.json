@@ -148,6 +148,12 @@
   "users.notice_placeholder": "Avviso a tutti gli utenti collegati",
   "users.notice_confirm": "Inviare questo avviso a tutti gli utenti collegati?",
 
+  "retention.title": "Scadenza messaggi",
+  "retention.on": "soju cancella in automatico i messaggi più vecchi di {dur}.",
+  "retention.off": "Nessuna scadenza: i messaggi sono tenuti per sempre.",
+  "retention.store": "Archivio messaggi: {store}",
+  "retention.hint": "Impostazione dell'intero server (<code>message-expiry</code> nel config di soju, qui in sola lettura). Si cambia nel config e si ricarica con <code>docker kill -s HUP soju</code>. Su SQLite liberare lo spazio su disco richiede poi un <code>VACUUM</code>.",
+
   "confirm.title": "Eliminare {user}?",
   "confirm.body": "Se ne va tutto quello che appartiene a questo utente: reti, canali salvati, storico dei messaggi. Non si torna indietro.",
   "confirm.delete": "Elimina {user}",

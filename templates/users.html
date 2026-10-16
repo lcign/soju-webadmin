@@ -64,5 +64,14 @@
 		<button data-confirm="{{.T "users.notice_confirm"}}">{{.T "users.notice"}}</button>
 	</form>
 </section>
+
+{{with .Data.Soju}}
+<section class="card">
+	<h2>{{$.T "retention.title"}}</h2>
+	{{if .Expiry}}<p>{{$.T "retention.on" "dur" .Expiry}}</p>{{else}}<p>{{$.T "retention.off"}}</p>{{end}}
+	{{if .Store}}<p class="muted">{{$.T "retention.store" "store" .Store}}</p>{{end}}
+	<small class="muted">{{$.TH "retention.hint"}}</small>
+</section>
+{{end}}
 </div>
 {{template "foot" .}}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"embed"
 	"fmt"
 	"html/template"
@@ -27,8 +28,41 @@ type Server struct {
 
 	policyPath string
 
+	sojuConfigPath string
+
 	locales *Bundle
 	lang    string
+}
+
+type sojuInfo struct {
+	Expiry string
+	Store  string
+}
+
+func (s *Server) sojuInfo() *sojuInfo {
+	if s.sojuConfigPath == "" {
+		return nil
+	}
+	f, err := os.Open(s.sojuConfigPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	info := &sojuInfo{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		fields := strings.Fields(sc.Text())
+		if len(fields) < 2 || strings.HasPrefix(fields[0], "#") || strings.HasPrefix(fields[0], ";") {
+			continue
+		}
+		switch fields[0] {
+		case "message-expiry":
+			info.Expiry = fields[1]
+		case "message-store":
+			info.Store = fields[1]
+		}
+	}
+	return info
 }
 
 func NewServer(cfg ServerConfig, sessions *SessionStore, prefix string, secure bool) (*Server, error) {
@@ -868,6 +902,7 @@ func (s *Server) users(w http.ResponseWriter, r *http.Request, sess *Session) {
 	s.render(w, r, sess, "users.html", "page.users", "users", map[string]any{
 		"Users":  users,
 		"Status": status,
+		"Soju":   s.sojuInfo(),
 	})
 }
 

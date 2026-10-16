@@ -23,6 +23,7 @@ func main() {
 		idle     = flag.Duration("idle-timeout", time.Hour, "close a session after this long without a request")
 		lang     = flag.String("lang", "en", "language this instance prefers; the browser and the reader can still choose")
 		locales  = flag.String("locales-dir", "", "read translations from this directory instead of the ones built in")
+		sojuConf = flag.String("soju-config", "", "path to soju's config, read-only, to show server-wide settings like message-expiry")
 
 		watch      = flag.Bool("watch", false, "run the watcher instead of the web interface")
 		watchOnce  = flag.Bool("watch-once", false, "with -watch, do a single pass and exit (for a systemd timer or cron)")
@@ -85,6 +86,7 @@ func main() {
 		log.Fatal(err)
 	}
 	srv.stateDir, srv.policyPath = *watchState, *policy
+	srv.sojuConfigPath = *sojuConf
 	srv.locales, srv.lang = bundle, *lang
 
 	hs := &http.Server{

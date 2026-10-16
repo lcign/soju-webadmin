@@ -148,6 +148,12 @@
   "users.notice_placeholder": "Broadcast to every connected user",
   "users.notice_confirm": "Send this notice to every connected user?",
 
+  "retention.title": "Message retention",
+  "retention.on": "soju automatically deletes messages older than {dur}.",
+  "retention.off": "No expiry: messages are kept forever.",
+  "retention.store": "Message store: {store}",
+  "retention.hint": "Server-wide setting (<code>message-expiry</code> in soju's config, read-only here). Change it in the config and reload with <code>docker kill -s HUP soju</code>. On SQLite, reclaiming disk space then needs a <code>VACUUM</code>.",
+
   "confirm.title": "Delete {user}?",
   "confirm.body": "Everything belonging to this user goes: networks, saved channels, stored history. It cannot be undone.",
   "confirm.delete": "Delete {user}",
